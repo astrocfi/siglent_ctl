@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QRadioButton,
                              QDoubleSpinBox,
                              QSpinBox,
+                             QButtonGroup,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
@@ -53,14 +54,15 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Current'):
-        {'widgets': ('~ValueBox_.*', 'ValueBox_Current'),
+        {'widgets': ('~ValueBox_.*', 'ValueBox_Current', 'ValueBox_SlewPos',
+                     'ValueBox_SlewNeg'),
          'mode_name': 'CURRENT',
          'params': (
             ('IRANGE', 'r', 'Range_Current_.*'),
             ('VRANGE', 'r', 'Range_Voltage_.*'),
             ('LEVEL:IMMEDIATE', 'f', 'Value_Current'),
-            # ('SLEW:POSITIVE', 'f', None),
-            # ('SLEW:NEGATIVE', 'f', None),
+            ('SLEW:POSITIVE', 'f', 'Value_SlewPos'),
+            ('SLEW:NEGATIVE', 'f', 'Value_SlewNeg'),
           )
         },
     ('Basic', 'Power'):
@@ -105,6 +107,7 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         self._cur_const_mode = None
         self._widget_registry = {}
         self._init_window()
+        self.show() # Do this here so all the widgets get their sizes before being hidden
         self.refresh()
 
     def refresh(self):
@@ -206,18 +209,14 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         mode_name = param_info['mode_name']
         for scpi_cmd, param_type, widget_re in params:
             val = self._param_state[f':{mode_name}:{scpi_cmd}']
-            if param_type == 'f':
+            if param_type == 'f' or param_type == 'd':
+                print(widget_re, val)
                 self._widget_registry[widget_re].setValue(val)
-    # ('Basic', 'Voltage'):
-    #     {'widgets': (),
-    #      'mode_name': 'VOLTAGE',
-    #      'params': (
-    #         ('IRANGE', 'r', 'Range_Current_.*'),
-    #         ('VRANGE', 'r', 'Range_Voltage_.*'),
-    #         ('LEVEL:IMMEDIATE', 'f', 'Value_Voltage'),
-    #       )
-    #     },
-
+            elif param_type == 'r': # Radio button
+                for trial_widget in self._widget_registry:
+                    if re.fullmatch(widget_re, trial_widget):
+                        checked = trial_widget.endswith('_'+str(val))
+                        self._widget_registry[trial_widget].setChecked(checked)
 
     def _cur_mode_param_info(self):
         key = (self._cur_overall_mode, self._cur_const_mode)
@@ -226,13 +225,14 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
     def _update_params(self, new_params):
         for key, data in new_params.items():
             if data != self._param_state[key]:
+                fmt_data = data
                 if isinstance(data, bool):
-                    data = '1' if True else '0'
+                    fmt_data = '1' if True else '0'
                 elif isinstance(data, float):
-                    data = '%.6f' % data
+                    fmt_data = '%.6f' % data
                 elif isinstance(data, int):
-                    data = int(data)
-                self._inst.write(f'{key} {data}')
+                    fmt_data = int(data)
+                self._inst.write(f'{key} {fmt_data}')
                 self._param_state[key] = data
 
     def _update_widget_state():
@@ -286,9 +286,11 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         for row_num, (mode, ranges) in enumerate((('Voltage', ('36V', '150V')),
                                                   ('Current', ('5A', '30A')))):
             layout2.addWidget(QLabel(mode+':'), row_num, 0)
+            bg = QButtonGroup(layout2)
             for col_num, range_name in enumerate(ranges):
                 rb = QRadioButton(range_name)
-                rb.mode = range_name
+                bg.addButton(rb)
+                rb.mode = range_name.strip('VA')
                 rb.toggled.connect(self._on_click_range)
                 if len(ranges) == 1:
                     layout2.addWidget(rb, row_num, col_num+1, 1, 2)
@@ -303,22 +305,26 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         frame = QGroupBox('Value')
         layout.addWidget(frame)
         layout2 = QVBoxLayout(frame)
-        for (mode, min_val, max_val, unit) in (('Voltage', 0, 150, 'V'),
-                                               ('Current', 0, 30, 'A'),
-                                               ('Power', 0, 300, 'W'), # High power only XXX
-                                               ('Resistance', 0, 10000, '\u2126')):
+        for (display, mode, min_val, max_val, unit) in (
+                        ('Voltage', 'Voltage', 0, 150, 'V'),
+                        ('Current', 'Current', 0, 30, 'A'),
+                        ('Power', 'Power', 0, 300, 'W'), # High power only XXX
+                        ('Resistance', 'Resistance', 0, 10000, '\u2126'),
+                        ('Slew (rise)', 'SlewPos', 0.001, 0.5, 'A/\u00B5'),
+                        ('Slew (fall)', 'SlewNeg', 0.001, 0.5, 'A/\u00B5')):
             container = QWidget()
             layout3 = QHBoxLayout(container)
-            layout3.addWidget(QLabel(mode+':'))
+            layout3.addWidget(QLabel(display+':'))
             input = QDoubleSpinBox()
+            input.mode = mode
             input.setAlignment(Qt.AlignmentFlag.AlignRight)
             input.setMinimum(min_val)
             input.setMaximum(max_val)
             input.setDecimals(3)
             input.setSingleStep(0.1)
             input.setSuffix(' '+unit)
+            input.valueChanged.connect(self._on_value_change)
             layout3.addWidget(input)
-            layout3.addStretch()
             container.sizePolicy().setRetainSizeWhenHidden(True)
             layout2.addWidget(container)
             self._widget_registry['Value_'+mode] = input
@@ -356,12 +362,28 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             return
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
-        mode = rb.mode
+        mode = int(rb.mode)
         new_params = self._param_state.copy()
-        if mode[-1] == 'V':
-            new_params[f':{mode_name}:VRANGE'] = mode[:-1]
+        # XXX Check for any V/I field exceeding this max_val and set to max_val
+        # XXX Change max_val on spinner box
+        if mode in (36, 150):
+            new_params[f':{mode_name}:VRANGE'] = mode
         else:
-            new_params[f':{mode_name}:IRANGE'] = mode[:-1]
+            new_params[f':{mode_name}:IRANGE'] = mode
+        self._update_params(new_params)
+
+    def _on_value_change(self):
+        input = self.sender()
+        info = self._cur_mode_param_info()
+        mode_name = info['mode_name']
+        val = float(input.value())
+        new_params = self._param_state.copy()
+        if input.mode in ('Voltage', 'Current', 'Power', 'Resistance'):
+            new_params[f':{mode_name}:LEVEL:IMMEDIATE'] = val
+        elif input.mode == 'SlewPos':
+            new_params[f':{mode_name}:SLEW:POSITIVE'] = val
+        elif input.mode == 'SlewNeg':
+            new_params[f':{mode_name}:SLEW:NEGATIVE'] = val
         self._update_params(new_params)
 
     def _on_click_on_off(self):
