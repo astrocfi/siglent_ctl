@@ -3,8 +3,9 @@ import time
 import pandas as pd
 
 class DataStream(object):
-    def __init__(self, name='Value'):
+    def __init__(self, name, unit):
         self._name = name
+        self._unit = unit
         self._times = []
         self._time_steps = []
         self._values = []
@@ -27,7 +28,7 @@ class DataStream(object):
     @property
     def time_steps(self):
         return self._time_steps
-        
+
     @property
     def values(self):
         return self._values

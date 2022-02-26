@@ -16,15 +16,18 @@ from PyQt6.QtCore import *
 
 from .device import Device4882
 
+# XXX There's a complicated thing with slew rise/fall where they have to both be in
+# the same range 0.001-0.01 or 0.01-0.5
+
 _SDL_OVERALL_MODES = {
-    'Basic':   ('Const_.*',),
-    'Dynamic': ('Const_.*',),
-    'LED':     ('!Const_.*',),
-    'Battery': ('Const_.*', '!Const_Voltage'),
-    'List':    ('Const_.*',),
-    'Program': ('!Const_.*',),
-    'OCPT':    ('!Const_.*',),
-    'OPPT':    ('!Const_.*',),
+    'Basic':   ('!Dynamic_Mode_.*', 'Const_.*',),
+    'Dynamic': ('Dynamic_Mode_.*', 'Const_.*',),
+    'LED':     ('!Dynamic_Mode_.*', '!Const_.*',),
+    'Battery': ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Voltage'),
+    'List':    ('!Dynamic_Mode_.*', 'Const_.*',),
+    'Program': ('!Dynamic_Mode_.*', '!Const_.*',),
+    'OCPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
+    'OPPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
 }
 
 _SDL_MODE_PARAMS = {
@@ -45,7 +48,8 @@ _SDL_MODE_PARAMS = {
          )
         },
     ('Basic', 'Voltage'):
-        {'widgets': ('~ValueBox_.*', 'ValueBox_Voltage'),
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_Voltage', 'Value_Voltage', 'V')),
          'mode_name': 'VOLTAGE',
          'params': (
             ('IRANGE', 'r', 'Range_Current_.*'),
@@ -54,8 +58,10 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Current'):
-        {'widgets': ('~ValueBox_.*', 'ValueBox_Current', 'ValueBox_SlewPos',
-                     'ValueBox_SlewNeg'),
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_Current', 'Value_Current', 'C'),
+                     ('ValueLabel_SlewPos', 'Value_SlewPos', 0.001, 0.5),
+                     ('ValueLabel_SlewNeg', 'Value_SlewNeg', 0.001, 0.5)),
          'mode_name': 'CURRENT',
          'params': (
             ('IRANGE', 'r', 'Range_Current_.*'),
@@ -66,7 +72,8 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Power'):
-        {'widgets': ('~ValueBox_.*', 'ValueBox_Power'),
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_Power', 'Value_Power', 0, 300)), # XXX
          'mode_name': 'POWER',
          'params': (
             ('IRANGE', 'r', 'Range_Current_.*'),
@@ -75,7 +82,8 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Resistance'):
-        {'widgets': ('~ValueBox_.*', 'ValueBox_Resistance'),
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_Resistance', 'Value_Resistance', 0, 10000)),
          'mode_name': 'RESISTANCE',
          'params': (
             ('IRANGE', 'r', 'Range_Current_.*'),
@@ -84,17 +92,71 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage'):
-        {'widgets': (),
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_ALevelV', 'Value_ALevelV', 'V'),
+                     ('ValueLabel_BLevelV', 'Value_BLevelV', 'V'),
+                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
+                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
             ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
-            # ('TRANSIENT:MODE', 'r', None),
-            # ('TRANSIENT:ALEVEL', 'f', 'Value_ALevel'),
-            # ('TRANSIENT:BLEVEL', 'f', 'Value_BLevel'),
-            # ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
-            # ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
-
+            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelV'),
+            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelV'),
+            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
+          )
+        },
+    ('Dynamic', 'Current'):
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_ALevelC', 'Value_ALevelC', 'C'),
+                     ('ValueLabel_BLevelC', 'Value_BLevelC', 'C'),
+                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
+                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
+         'mode_name': 'CURRENT',
+         'params': (
+            ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelC'),
+            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelC'),
+            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
+          )
+        },
+    ('Dynamic', 'Power'):
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_ALevelP', 'Value_ALevelP', 0, 300), # XXX
+                     ('ValueLabel_BLevelP', 'Value_BLevelP', 0, 300),
+                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
+                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
+         'mode_name': 'POWER',
+         'params': (
+            ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelP'),
+            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelP'),
+            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
+          )
+        },
+    ('Dynamic', 'Resistance'):
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_ALevelR', 'Value_ALevelR', 0.03, 10000), # XXX
+                     ('ValueLabel_BLevelR', 'Value_BLevelR', 0.03, 10000),
+                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
+                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
+         'mode_name': 'RESISTANCE',
+         'params': (
+            ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelR'),
+            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelR'),
+            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
           )
         },
 }
@@ -152,13 +214,14 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             self._cur_overall_mode = 'Basic'
             self._cur_const_mode = self._param_state[':FUNCTION'].title()
 
-        self._update_widgets_after_mode_change()
+        self._update_widgets()
 
-    def _update_widgets_after_mode_change(self):
+    def _update_widgets(self):
         if self._cur_overall_mode is None or self._cur_const_mode is None:
             return
 
         param_info = self._cur_mode_param_info()
+        mode_name = param_info['mode_name']
 
         for widget_name, widget in self._widget_registry.items():
             # Set the main mode radio buttons
@@ -188,6 +251,23 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
 
         # Now do the same thing for the constant mode
         for widget_name in param_info['widgets']:
+            min_val = max_val = None
+            widget_name2 = None
+            if isinstance(widget_name, (tuple, list)):
+                if len(widget_name) == 4:
+                    widget_name, widget_name2, min_val, max_val = widget_name
+                elif len(widget_name) == 3:
+                    widget_name, widget_name2, range_type = widget_name
+                    if range_type == 'C':
+                        min_val = 0
+                        max_val = float(self._param_state[f':{mode_name}:IRANGE'])
+                    elif range_type == 'V':
+                        min_val = 0
+                        max_val = float(self._param_state[f':{mode_name}:VRANGE'])
+                    else:
+                        assert False
+                else:
+                    assert False
             if widget_name[0] == '~':
                 # Hide unused widgets
                 for trial_widget in self._widget_registry:
@@ -203,6 +283,18 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                     if re.fullmatch(widget_name, trial_widget):
                         self._widget_registry[trial_widget].setEnabled(True)
                         self._widget_registry[trial_widget].show()
+                    if widget_name2 is not None:
+                        if re.fullmatch(widget_name2, trial_widget):
+                            widget = self._widget_registry[trial_widget]
+                            widget.show()
+                            widget.setMinimum(min_val)
+                            widget.setMaximum(max_val)
+                            # val = widget.value()
+                            # print(val)
+                            # if val < min_val:
+                            #     widget.setValue(min_val)
+                            # if val > max_val:
+                            #     widget.setValue(max_val)
 
         # Fill in widget values
         params = param_info['params']
@@ -215,7 +307,7 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             elif param_type == 'r': # Radio button
                 for trial_widget in self._widget_registry:
                     if re.fullmatch(widget_re, trial_widget):
-                        checked = trial_widget.endswith('_'+str(val))
+                        checked = trial_widget.upper().endswith('_'+str(val).upper())
                         self._widget_registry[trial_widget].setChecked(checked)
 
     def _cur_mode_param_info(self):
@@ -245,91 +337,126 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         self.setLayout(row_layout)
         self.setWindowTitle(f'Configure {self._inst._name}')
 
-        # Overall mode: Basic, Dynamic, Battery, List, Program, OCPT, OPPT
-        layout = QVBoxLayout()
-        row_layout.addLayout(layout)
+        # Overall mode: Basic, Dynamic, LED, Battery, List, Program, OCPT, OPPT
+        layouts = QVBoxLayout()
+        row_layout.addLayout(layouts)
         frame = QGroupBox('Mode')
-        layout2 = QVBoxLayout(frame)
-        row_layout.addWidget(frame)
-        for mode in ('Basic', 'Dynamic', 'LED', 'Battery', 'List', 'Program',
-                     'OCPT', 'OPPT'):
+        layouts.addWidget(frame)
+        layouth = QHBoxLayout(frame)
+        layoutv = QVBoxLayout()
+        layouth.addLayout(layoutv)
+        layoutv.setSpacing(1)
+        bg = QButtonGroup(layouts)
+        # Left column
+        for mode in ('Basic', 'LED', 'Battery', 'List', 'Program', 'OCPT', 'OPPT'):
             rb = QRadioButton(mode)
-            rb.mode = mode
+            layoutv.addWidget(rb)
+            bg.addButton(rb)
+            rb.wid = mode
             rb.toggled.connect(self._on_click_overall_mode)
             self._widget_registry['Overall_'+mode] = rb
-            layout2.addWidget(rb)
-        layout.addStretch()
-        # layout.setStyleSheet("border: 1px solid black;")
+        # Right column
+        layoutv = QVBoxLayout()
+        layouth.addLayout(layoutv)
+        layoutv.setSpacing(1)
+        rb = QRadioButton('Dynamic')
+        layoutv.addWidget(rb)
+        bg.addButton(rb)
+        rb.wid = 'Dynamic'
+        rb.toggled.connect(self._on_click_overall_mode)
+        self._widget_registry['Overall_Dynamic'] = rb
+        # Dynamics modes
+        bg = QButtonGroup(layouts)
+        for mode in ('Continuous', 'Pulse', 'Toggle'):
+            rb = QRadioButton(mode)
+            rb.setStyleSheet('padding-left: 25px;') # Indent
+            layoutv.addWidget(rb)
+            bg.addButton(rb)
+            rb.wid = mode
+            rb.toggled.connect(self._on_click_dynamic_mode)
+            self._widget_registry['Dynamic_Mode_'+mode] = rb
+        layoutv.addStretch()
+        layouts.addStretch()
 
         # Mode radio buttons: CV, CC, CP, CR
-        layout = QVBoxLayout()
-        row_layout.addLayout(layout)
+        layouts = QVBoxLayout()
+        row_layout.addLayout(layouts)
         frame = QGroupBox('Constant')
-        layout.addWidget(frame)
-        layout2 = QVBoxLayout(frame)
+        layouts.addWidget(frame)
+        layoutv = QVBoxLayout(frame)
         for mode in ('Voltage', 'Current', 'Power', 'Resistance'):
             rb = QRadioButton(mode)
-            rb.mode = mode
+            rb.wid = mode
             rb.sizePolicy().setRetainSizeWhenHidden(True)
             rb.toggled.connect(self._on_click_const_mode)
             self._widget_registry['Const_'+mode] = rb
-            layout2.addWidget(rb)
-        layout.addStretch()
+            layoutv.addWidget(rb)
+        layouts.addStretch()
         # layout.setStyleSheet("border: 1px solid black;")
 
         # V/I/R Range selections
-        layout = QVBoxLayout()
-        row_layout.addLayout(layout)
+        layouts = QVBoxLayout()
+        row_layout.addLayout(layouts)
         frame = QGroupBox('Range')
-        layout.addWidget(frame)
-        layout2 = QGridLayout(frame)
+        layouts.addWidget(frame)
+        layout = QGridLayout(frame)
         for row_num, (mode, ranges) in enumerate((('Voltage', ('36V', '150V')),
                                                   ('Current', ('5A', '30A')))):
-            layout2.addWidget(QLabel(mode+':'), row_num, 0)
-            bg = QButtonGroup(layout2)
+            layout.addWidget(QLabel(mode+':'), row_num, 0)
+            bg = QButtonGroup(layout)
             for col_num, range_name in enumerate(ranges):
                 rb = QRadioButton(range_name)
                 bg.addButton(rb)
-                rb.mode = range_name.strip('VA')
+                rb.wid = range_name.strip('VA')
                 rb.toggled.connect(self._on_click_range)
                 if len(ranges) == 1:
-                    layout2.addWidget(rb, row_num, col_num+1, 1, 2)
+                    layout.addWidget(rb, row_num, col_num+1, 1, 2)
                 else:
-                    layout2.addWidget(rb, row_num, col_num+1)
+                    layout.addWidget(rb, row_num, col_num+1)
                 self._widget_registry['Range_'+mode+'_'+range_name.strip('VA')] = rb
-        layout.addStretch()
+        layouts.addStretch()
 
         # Value for most modes
-        layout = QVBoxLayout()
-        row_layout.addLayout(layout)
+        layouts = QVBoxLayout()
+        row_layout.addLayout(layouts)
         frame = QGroupBox('Value')
-        layout.addWidget(frame)
-        layout2 = QVBoxLayout(frame)
-        for (display, mode, min_val, max_val, unit) in (
-                        ('Voltage', 'Voltage', 0, 150, 'V'),
-                        ('Current', 'Current', 0, 30, 'A'),
-                        ('Power', 'Power', 0, 300, 'W'), # High power only XXX
-                        ('Resistance', 'Resistance', 0, 10000, '\u2126'),
-                        ('Slew (rise)', 'SlewPos', 0.001, 0.5, 'A/\u00B5'),
-                        ('Slew (fall)', 'SlewNeg', 0.001, 0.5, 'A/\u00B5')):
-            container = QWidget()
-            layout3 = QHBoxLayout(container)
-            layout3.addWidget(QLabel(display+':'))
+        layouts.addWidget(frame)
+        layoutv = QVBoxLayout(frame)
+        for (display, mode, unit, scpi) in (
+                        ('Voltage', 'Voltage', 'V', 'LEVEL:IMMEDIATE'),
+                        ('Current', 'Current', 'A', 'LEVEL:IMMEDIATE'),
+                        ('Power', 'Power', 'W', 'LEVEL:IMMEDIATE'),
+                        ('Resistance', 'Resistance', '\u2126', 'LEVEL:IMMEDIATE'),
+                        ('Slew (rise)', 'SlewPos', 'A/\u00B5', 'SLEW:POSITIVE'),
+                        ('Slew (fall)', 'SlewNeg', 'A/\u00B5', 'SLEW:NEGATIVE'),
+                        ('A Level', 'ALevelV', 'V', 'TRANSIENT:ALEVEL'),
+                        ('B Level', 'BLevelV', 'V', 'TRANSIENT:BLEVEL'),
+                        ('A Level', 'ALevelC', 'A', 'TRANSIENT:ALEVEL'),
+                        ('B Level', 'BLevelC', 'A', 'TRANSIENT:BLEVEL'),
+                        ('A Level', 'ALevelP', 'W', 'TRANSIENT:ALEVEL'),
+                        ('B Level', 'BLevelP', 'W', 'TRANSIENT:BLEVEL'),
+                        ('A Level', 'ALevelR', '\u2126', 'TRANSIENT:ALEVEL'),
+                        ('B Level', 'BLevelR', '\u2126', 'TRANSIENT:BLEVEL'),
+                        ('A Width', 'AWidth', 's', 'TRANSIENT:AWIDTH'),
+                        ('B Width', 'BWidth', 's', 'TRANSIENT:BWIDTH'),
+                    ):
+            layouth = QHBoxLayout()
+            label = QLabel(display+':')
+            layouth.addWidget(label)
             input = QDoubleSpinBox()
-            input.mode = mode
+            input.wid = (mode, scpi)
             input.setAlignment(Qt.AlignmentFlag.AlignRight)
-            input.setMinimum(min_val)
-            input.setMaximum(max_val)
             input.setDecimals(3)
             input.setSingleStep(0.1)
             input.setSuffix(' '+unit)
             input.valueChanged.connect(self._on_value_change)
-            layout3.addWidget(input)
-            container.sizePolicy().setRetainSizeWhenHidden(True)
-            layout2.addWidget(container)
+            layouth.addWidget(input)
+            label.sizePolicy().setRetainSizeWhenHidden(True)
+            input.sizePolicy().setRetainSizeWhenHidden(True)
+            layoutv.addLayout(layouth)
             self._widget_registry['Value_'+mode] = input
-            self._widget_registry['ValueBox_'+mode] = container
-        layout.addStretch()
+            self._widget_registry['ValueLabel_'+mode] = label
+        layouts.addStretch()
 
         self._w_on_off = QPushButton('LOAD IS OFF')
         self._w_on_off.state = False
@@ -340,21 +467,39 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         rb = self.sender()
         if not rb.isChecked():
             return
-        self._cur_overall_mode = rb.mode
-        self._update_widgets_after_mode_change()
+        self._cur_overall_mode = rb.wid
+        new_params = self._param_state.copy()
+        if self._cur_overall_mode == 'Basic':
+            new_params[':FUNCTION'] = self._cur_const_mode
+        elif self._cur_overall_mode == 'Dynamic':
+            new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+        self._update_params(new_params)
+        self._update_widgets()
+
+    def _on_click_dynamic_mode(self):
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+        info = self._cur_mode_param_info()
+        mode_name = info['mode_name']
+        new_params = self._param_state.copy()
+        new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+        new_params[f':{mode_name}:TRANSIENT:MODE'] = rb.wid
+        self._update_params(new_params)
+        self._update_widgets()
 
     def _on_click_const_mode(self):
         rb = self.sender()
         if not rb.isChecked():
             return
-        self._cur_const_mode = rb.mode
+        self._cur_const_mode = rb.wid
         new_params = self._param_state.copy()
         if self._cur_overall_mode == 'Basic':
-            new_params[f':FUNCTION'] = self._cur_const_mode
+            new_params[':FUNCTION'] = self._cur_const_mode
         elif self._cur_overall_mode == 'Dynamic':
-            new_params[f':FUNCTION:TRANSIENT'] = self._cur_const_mode
+            new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
         self._update_params(new_params)
-        self._update_widgets_after_mode_change()
+        self._update_widgets()
 
     def _on_click_range(self):
         rb = self.sender()
@@ -362,29 +507,27 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             return
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
-        mode = int(rb.mode)
+        val = int(rb.wid)
         new_params = self._param_state.copy()
         # XXX Check for any V/I field exceeding this max_val and set to max_val
         # XXX Change max_val on spinner box
-        if mode in (36, 150):
-            new_params[f':{mode_name}:VRANGE'] = mode
+        if val in (36, 150):
+            new_params[f':{mode_name}:VRANGE'] = val
         else:
-            new_params[f':{mode_name}:IRANGE'] = mode
+            new_params[f':{mode_name}:IRANGE'] = val
         self._update_params(new_params)
+        self._update_widgets()
 
     def _on_value_change(self):
         input = self.sender()
+        mode, scpi = input.wid
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
         val = float(input.value())
         new_params = self._param_state.copy()
-        if input.mode in ('Voltage', 'Current', 'Power', 'Resistance'):
-            new_params[f':{mode_name}:LEVEL:IMMEDIATE'] = val
-        elif input.mode == 'SlewPos':
-            new_params[f':{mode_name}:SLEW:POSITIVE'] = val
-        elif input.mode == 'SlewNeg':
-            new_params[f':{mode_name}:SLEW:NEGATIVE'] = val
+        new_params[f':{mode_name}:{scpi}'] = val
         self._update_params(new_params)
+        self._update_widgets()
 
     def _on_click_on_off(self):
         bt = self.sender()
@@ -418,9 +561,12 @@ class InstrumentSiglentSDL(Device4882):
         self._name = f'{self._model} @ {self._resource_name}'
         self._high_power = self._model in ('SDL1030X-E', 'SDL1030X')
 
-    def set_input_state(self, val):
-        self._validator_1(val)
-        self.write(f':INPUT:STATE {val}')
+    def configure_widget(self):
+        return InstrumentSiglentSDLConfigureWidget(self)
+
+    # def set_input_state(self, val):
+    #     self._validator_1(val)
+    #     self.write(f':INPUT:STATE {val}')
 
     def measure_voltage(self):
         return float(self.query('MEAS:VOLT?'))
@@ -442,8 +588,6 @@ class InstrumentSiglentSDL(Device4882):
 
     ###
 
-    def configure_widget(self):
-        return InstrumentSiglentSDLConfigureWidget(self)
 
 
 
@@ -791,7 +935,7 @@ class ModeStatic(Input):
         query = ':FUNC?'
         write = ':FUNC'
         rvalue = self._command.read_write(
-            query, write, self._validate.mode_static,
+            query, write, self._validate.id_static,
             set_static_mode, global_input_values, 'mode')
         if rvalue is None:
             value = self._command.read(query)
@@ -1071,7 +1215,7 @@ class ModeDynamic(Input):
         query = ':FUNC:TRAN?'
         write = ':FUNC:TRAN'
         rvalue = self._command.read_write(
-            query, write, self._validate.mode_dynamic,
+            query, write, self._validate.id_dynamic,
             set_dynamic_mode, global_input_values, 'mode')
         if rvalue is None:
             value = self._command.read(query)
@@ -1109,7 +1253,7 @@ class ModeDynamicCC(ModeDynamic):
         query = ':CURR:TRAN:MODE?'
         write = ':CURR:TRAN:MODE'
         return self._command.read_write(
-            query, write, self._validate.mode_transient,
+            query, write, self._validate.id_transient,
             set_transient_mode, self._mode_cc_dyn, 'pulse_mode')
 
     def a_level(self, set_pulse_level=None):
@@ -1207,7 +1351,7 @@ class ModeDynamicCV(ModeDynamic):
         query = ':VOLT:TRAN:MODE?'
         write = ':VOLT:TRAN:MODE'
         return self._command.read_write(
-            query, write, self._validate.mode_transient,
+            query, write, self._validate.id_transient,
             set_transient_mode, self._mode_cv_dyn, 'pulse_mode')
 
     def a_level(self, set_pulse_level=None):
@@ -1287,7 +1431,7 @@ class ModeDynamicCP(ModeDynamic):
         query = ':POW:TRAN:MODE?'
         write = ':POW:TRAN:MODE'
         return self._command.read_write(
-            query, write, self._validate.mode_transient,
+            query, write, self._validate.id_transient,
             set_transient_mode, self._mode_cp_dyn, 'pulse_mode')
 
     def a_level(self, set_pulse_level=None):
@@ -1373,7 +1517,7 @@ class ModeDynamicCR(ModeDynamic):
         query = ':RES:TRAN:MODE?'
         write = ':RES:TRAN:MODE'
         return self._command.read_write(
-            query, write, self._validate.mode_transient,
+            query, write, self._validate.id_transient,
             set_transient_mode, self._mode_cr_dyn, 'pulse_mode')
 
     def a_level(self, set_pulse_level=None):
@@ -1554,7 +1698,7 @@ class ModeBattery(Input):
         self._mode_bat = {}
         self._mode_bat = {
             'enable': self.get_enable(),
-            'batt_mode': self.mode(),
+            'batt_mode': self.id(),
             'level': self.level(),
             'v_stop': self.v_stop(),
             'c_stop': self.c_stop(),
@@ -1587,7 +1731,7 @@ class ModeBattery(Input):
         query = ':BATT:MODE?'
         write = ':BATT:MODE'
         return self._command.read_write(
-            query, write, self._validate.mode_battery,
+            query, write, self._validate.id_battery,
             set_mode, self._mode_bat, 'batt_mode')
 
     def current_range(self, set_current_range=None):
@@ -1911,7 +2055,7 @@ class ModeProgram(Input):
         write = ':PROG:MODE ' + str(step) + ','
         self._validate.step_range(step)
         return self._command.read_write(
-            query, write, self._validate.mode_static,
+            query, write, self._validate.id_static,
             set_program_mode, self._mode_prog, 'program_mode')
 
     def step(self, set_steps=None):
@@ -2521,24 +2665,24 @@ class Command(Validate):
 # [:SOURce]:CURRent:SLEW:POSitive?
 # [:SOURce]:CURRent:SLEW:NEGative {<value> | MINimum | MAXimum | DEFault}
 # [:SOURce]:CURRent:SLEW:NEGative?
-[:SOURce]:CURRent:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-[:SOURce]:CURRent:TRANsient:MODE?
-[:SOURce]:CURRent:TRANsient:IRANGe
-[:SOURce]:CURRent:TRANsient:IRANGe?
-[:SOURce]:CURRent:TRANsient:VRANGe
-[:SOURce]:CURRent:TRANsient:VRANGe?
-[:SOURce]:CURRent:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:TRANsient:ALEVel?
-[:SOURce]:CURRent:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:TRANsient:BLEVel?
-[:SOURce]:CURRent:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:TRANsient:AWIDth?
-[:SOURce]:CURRent:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:TRANsient:BWIDth?
-[:SOURce]:CURRent:TRANsient:SLEW:POSitive {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:TRANsient:SLEW:POSitive?
-[:SOURce]:CURRent:TRANsient:SLEW:NEGative {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:TRANsient:SLEW:NEGative?
+# [:SOURce]:CURRent:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
+# [:SOURce]:CURRent:TRANsient:MODE?
+# [:SOURce]:CURRent:TRANsient:IRANGe
+# [:SOURce]:CURRent:TRANsient:IRANGe?
+# [:SOURce]:CURRent:TRANsient:VRANGe
+# [:SOURce]:CURRent:TRANsient:VRANGe?
+# [:SOURce]:CURRent:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:CURRent:TRANsient:ALEVel?
+# [:SOURce]:CURRent:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:CURRent:TRANsient:BLEVel?
+# [:SOURce]:CURRent:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:CURRent:TRANsient:AWIDth?
+# [:SOURce]:CURRent:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:CURRent:TRANsient:BWIDth?
+# [:SOURce]:CURRent:TRANsient:SLEW:POSitive {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:CURRent:TRANsient:SLEW:POSitive?
+# [:SOURce]:CURRent:TRANsient:SLEW:NEGative {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:CURRent:TRANsient:SLEW:NEGative?
 
 # [:SOURce]:VOLTage[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
 # [:SOURce]:VOLTage[:LEVel][:IMMediate]?
@@ -2546,20 +2690,20 @@ class Command(Validate):
 # [:SOURce]:VOLTage:IRANGe?
 # [:SOURce]:VOLTage:VRANGe <value>
 # [:SOURce]:VOLTage:VRANGe?
-[:SOURce]:VOLTage:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-[:SOURce]:VOLTage:TRANsient:MODE?
-[:SOURce]:VOLTage:TRANsient:IRANGe
-[:SOURce]:VOLTage:TRANsient:IRANGe?
-[:SOURce]:VOLTage:TRANsient:VRANGe
-[:SOURce]:VOLTage:TRANsient:VRANGe?
-[:SOURce]:VOLTage:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:VOLTage:TRANsient:ALEVel?
-[:SOURce]:VOLTage:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:VOLTage:TRANsient:BLEVel?
-[:SOURce]:VOLTage:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:VOLTage:TRANsient:AWIDth?
-[:SOURce]:VOLTage:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:VOLTage:TRANsient:BWIDth?
+# [:SOURce]:VOLTage:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
+# [:SOURce]:VOLTage:TRANsient:MODE?
+# [:SOURce]:VOLTage:TRANsient:IRANGe
+# [:SOURce]:VOLTage:TRANsient:IRANGe?
+# [:SOURce]:VOLTage:TRANsient:VRANGe
+# [:SOURce]:VOLTage:TRANsient:VRANGe?
+# [:SOURce]:VOLTage:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:VOLTage:TRANsient:ALEVel?
+# [:SOURce]:VOLTage:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:VOLTage:TRANsient:BLEVel?
+# [:SOURce]:VOLTage:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:VOLTage:TRANsient:AWIDth?
+# [:SOURce]:VOLTage:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:VOLTage:TRANsient:BWIDth?
 
 # [:SOURce]:POWer[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
 # [:SOURce]:POWer[:LEVel][:IMMediate]?
@@ -2567,20 +2711,20 @@ class Command(Validate):
 # [:SOURce]:POWer:IRANGe?
 # [:SOURce]:POWer:VRANGe <value>
 # [:SOURce]:POWer:VRANGe?
-[:SOURce]:POWer:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-[:SOURce]:POWer:TRANsient:MODE?
-[:SOURce]:POWer:TRANsient:IRANGe
-[:SOURce]:POWer:TRANsient:IRANGe?
-[:SOURce]:POWer:TRANsient:VRANGe
-[:SOURce]:POWer:TRANsient:VRANGe?
-[:SOURce]:POWer:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:POWer:TRANsient:ALEVel?
-[:SOURce]:POWer:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:POWer:TRANsient:BLEVel?
-[:SOURce]:POWer:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:POWer:TRANsient:AWIDth?
-[:SOURce]:POWer:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:POWer:TRANsient:BWIDth?
+# [:SOURce]:POWer:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
+# [:SOURce]:POWer:TRANsient:MODE?
+# [:SOURce]:POWer:TRANsient:IRANGe
+# [:SOURce]:POWer:TRANsient:IRANGe?
+# [:SOURce]:POWer:TRANsient:VRANGe
+# [:SOURce]:POWer:TRANsient:VRANGe?
+# [:SOURce]:POWer:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:POWer:TRANsient:ALEVel?
+# [:SOURce]:POWer:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:POWer:TRANsient:BLEVel?
+# [:SOURce]:POWer:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:POWer:TRANsient:AWIDth?
+# [:SOURce]:POWer:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:POWer:TRANsient:BWIDth?
 
 # [:SOURce]:RESistance[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
 # [:SOURce]:RESistance[:LEVel][:IMMediate]?
@@ -2588,24 +2732,24 @@ class Command(Validate):
 # [:SOURce]:RESistance:IRANGe?
 # [:SOURce]:RESistance:VRANGe <value>
 # [:SOURce]:RESistance:VRANGe?
-[:SOURce]:RESistance:RRANGe {LOW | MIDDLE | HIGH | UPPER}
-[:SOURce]:RESistance:RRANGe?
-[:SOURce]:RESistance:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-[:SOURce]:RESistance:TRANsient:MODE?
-[:SOURce]:RESistance:TRANsient:IRANGe
-[:SOURce]:RESistance:TRANsient:IRANGe?
-[:SOURce]:RESistance:TRANsient:VRANGe
-[:SOURce]:RESistance:TRANsient:VRANGe?
-[:SOURce]:RESistance:TRANsient:RRANGe {LOW | MIDDLE | HIGH | UPPER}
-[:SOURce]:RESistance:TRANsient:RRANGe?
-[:SOURce]:RESistance:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:RESistance:TRANsient:ALEVel?
-[:SOURce]:RESistance:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:RESistance:TRANsient:BLEVel?
-[:SOURce]:RESistance:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:RESistance:TRANsient:AWIDth?
-[:SOURce]:RESistance:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-[:SOURce]:RESistance:TRANsient:BWIDth?
+# [:SOURce]:RESistance:RRANGe {LOW | MIDDLE | HIGH | UPPER}
+# [:SOURce]:RESistance:RRANGe?
+# [:SOURce]:RESistance:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
+# [:SOURce]:RESistance:TRANsient:MODE?
+# [:SOURce]:RESistance:TRANsient:IRANGe
+# [:SOURce]:RESistance:TRANsient:IRANGe?
+# [:SOURce]:RESistance:TRANsient:VRANGe
+# [:SOURce]:RESistance:TRANsient:VRANGe?
+# [:SOURce]:RESistance:TRANsient:RRANGe {LOW | MIDDLE | HIGH | UPPER}
+# [:SOURce]:RESistance:TRANsient:RRANGe?
+# [:SOURce]:RESistance:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:RESistance:TRANsient:ALEVel?
+# [:SOURce]:RESistance:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:RESistance:TRANsient:BLEVel?
+# [:SOURce]:RESistance:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:RESistance:TRANsient:AWIDth?
+# [:SOURce]:RESistance:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
+# [:SOURce]:RESistance:TRANsient:BWIDth?
 
 [:SOURce]:LED:IRANGe
 [:SOURce]:LED:IRANGe?

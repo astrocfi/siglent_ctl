@@ -38,22 +38,22 @@ inst.connect()
 config_widget = inst.configure_widget()
 
 
-stream_v = DataStream('V')
-stream_i = DataStream('I')
+# stream_v = DataStream('V')
+# stream_i = DataStream('I')
 # stream_p = DataStream('P')
 # stream_r = DataStream('R')
 
 config_widget.show()
 
-widget = QWidget()
-layout = QGridLayout()
-widget.setLayout(layout)
-
-pw = pg.plot(title='SDL Measurement')
-layout.addWidget(pw, 0, 0)
-
-pdi_v = pw.plot([], pen=0)
-pdi_i = pw.plot([], pen=1)
+# widget = QWidget()
+# layout = QGridLayout()
+# widget.setLayout(layout)
+#
+# pw = pg.plot(title='SDL Measurement')
+# layout.addWidget(pw, 0, 0)
+#
+# pdi_v = pw.plot([], pen=0)
+# pdi_i = pw.plot([], pen=1)
 # pdi_p = pw.plot([], pen=2)
 # pdi_r = pw.plot([], pen=3)
 
