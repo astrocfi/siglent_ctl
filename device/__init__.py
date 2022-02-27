@@ -1,11 +1,11 @@
 from .device import Device4882
-from .siglent_sdl import InstrumentSiglentSDL
+from .siglent_sdl1000 import InstrumentSiglentSDL1000
 
 _DEVICE_MAPPING = {
-    ('Siglent Technologies', 'SDL1020X'): InstrumentSiglentSDL,
-    ('Siglent Technologies', 'SDL1020X-E'): InstrumentSiglentSDL,
-    ('Siglent Technologies', 'SDL1030X'): InstrumentSiglentSDL,
-    ('Siglent Technologies', 'SDL1030X-E'): InstrumentSiglentSDL,
+    ('Siglent Technologies', 'SDL1020X'): InstrumentSiglentSDL1000,
+    ('Siglent Technologies', 'SDL1020X-E'): InstrumentSiglentSDL1000,
+    ('Siglent Technologies', 'SDL1030X'): InstrumentSiglentSDL1000,
+    ('Siglent Technologies', 'SDL1030X-E'): InstrumentSiglentSDL1000,
 }
 
 def create_device(rm, resource_name):

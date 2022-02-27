@@ -8,6 +8,7 @@ class Device(object):
     def __init__(self, resource_manager, resource_name):
         self._resource_manager = resource_manager
         self._resource_name = resource_name
+        self._long_name = resource_name
         self._name = resource_name
         self._resource = None
         self._connected = False

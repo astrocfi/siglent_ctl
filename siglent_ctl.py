@@ -15,7 +15,7 @@ from data_stream import DataStream
 import device
 
 def update():
-    config_widget.refresh()
+    config_widget.update_measurements()
     # stream_v.record_value(inst.measure_voltage())
     # stream_i.record_value(inst.measure_current())
     # # stream_p.record_value(inst.measure_power())
@@ -61,8 +61,8 @@ config_widget.show()
 # widget.show()
 #
 timer = QTimer(app)
-# timer.timeout.connect(update)
-timer.start(2000)
+timer.timeout.connect(update)
+timer.start(1000)
 
 app.exec()
 

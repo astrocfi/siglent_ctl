@@ -1,0 +1,46 @@
+
+# px -> em
+# Measure external source
+# SHORT
+# List mode should follow along with the steps and highlight rows
+# Send manual trigger
+# Configure trigger source
+# Use 'P' for power limits and check high power flag
+
+# [:SOURce]:LED: RCOnf {< value > | MINimum | MAXimum | DEFault}
+
+# BATT mode has no CV
+# [:SOURce]:BATTery:LEVel
+# [:SOURce]:BATTery:VOLTage - cutoff voltage
+# [:SOURce]:BATTery:CAPability = cutoff current
+# [:SOURce]:BATTery:TIMer = cutoff time  0 - 86400 integer seconds
+# [:SOURce]:BATTery:VOLTage:STATe {ON | OFF = use volt term condition?
+# CAP
+# TIMER
+# [:SOURce]:BATTery:DISCHArg:CAPability?
+# [:SOURce]:BATTery:DISCHArg:TIMer?
+# Undocumented: BATT:ADDCAP[?]
+# Undocumented: MACHINETIME?
+
+# List mode
+
+# Program mode
+
+# OCP
+# OPP
+
+# Breakover voltage
+# External control switch
+# Current protection
+# Power protection
+
+# Save/load config of all parameters
+
+# Various back of device terminals - sense
+# Stop on fail
+# Average count
+# External mode
+
+# Undocumented!
+# syst:remote:state 0/1 - lock keyboard and set remote icon
+# func:mode?  BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM (LED=BASIC)
