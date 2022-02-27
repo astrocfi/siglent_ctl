@@ -1,3 +1,52 @@
+# TODO
+# Measure external source
+# SHORT
+# List mode should follow along with the steps and highlight rows
+# Send manual trigger
+# Configure trigger source
+# Use 'P' for power limits and check high power flag
+
+# [:SOURce]:LED: RCOnf {< value > | MINimum | MAXimum | DEFault}
+
+# BATT mode has no CV
+# [:SOURce]:BATTery:LEVel
+# [:SOURce]:BATTery:VOLTage - cutoff voltage
+# [:SOURce]:BATTery:CAPability = cutoff current
+# [:SOURce]:BATTery:TIMer = cutoff time  0 - 86400 integer seconds
+# [:SOURce]:BATTery:VOLTage:STATe {ON | OFF = use volt term condition?
+# CAP
+# TIMER
+# [:SOURce]:BATTery:DISCHArg:CAPability?
+# [:SOURce]:BATTery:DISCHArg:TIMer?
+# Undocumented: BATT:ADDCAP[?]
+# Undocumented: MACHINETIME?
+
+# List mode
+
+# Program mode
+
+# OCP
+# OPP
+
+# Breakover voltage
+# External control switch
+# Current protection
+# Power protection
+
+# Save/load config of all parameters
+
+# Various back of device terminals - sense
+# Stop on fail
+# Average count
+# External mode
+
+# Undocumented!
+# syst:remote:state 0/1 - lock keyboard and set remote icon
+# func:mode?  BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM (LED=BASIC)
+
+
+
+import pprint
 import re
 
 from PyQt6.QtWidgets import (QWidget,
@@ -8,6 +57,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QDoubleSpinBox,
                              QSpinBox,
                              QButtonGroup,
+                             QLayout,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
@@ -35,16 +85,16 @@ _SDL_MODE_PARAMS = {
         {'widgets': None,
          'mode_name': None,
          'params': (
-            ('INPUT:STATE', 'b', None),
-            ('SHORT:STATE', 'b', None),
-            ('FUNCTION', 'r', None),
+            # SYST:REMOTE:STATE is undocumented! It locks the keyboard and
+            # sets the remote access icon
+            ('SYST:REMOTE:STATE',  'b', None),
+            ('INPUT:STATE',        'b', None),
+            ('SHORT:STATE',        'b', None),
+            ('FUNCTION',           'r', None),
             ('FUNCTION:TRANSIENT', 'r', None),
-            ('OCP:FUNC', 'b', None),
-            ('OPP:FUNC', 'b', None),
-            ('BATTERY:FUNC', 'b', None),
-            ('LIST:STATE', 'b', None),
-            ('PROGRAM:STATE', 'b', None),
-
+            # FUNCtion:MODE is undocumented! Possible return values are:
+            #   BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
+            ('FUNCTION:MODE',      's', None),
          )
         },
     ('Basic', 'Voltage'):
@@ -52,8 +102,8 @@ _SDL_MODE_PARAMS = {
                      ('ValueLabel_Voltage', 'Value_Voltage', 'V')),
          'mode_name': 'VOLTAGE',
          'params': (
-            ('IRANGE', 'r', 'Range_Current_.*'),
-            ('VRANGE', 'r', 'Range_Voltage_.*'),
+            ('IRANGE',          'r', 'Range_Current_.*'),
+            ('VRANGE',          'r', 'Range_Voltage_.*'),
             ('LEVEL:IMMEDIATE', 'f', 'Value_Voltage'),
           )
         },
@@ -64,11 +114,11 @@ _SDL_MODE_PARAMS = {
                      ('ValueLabel_SlewNeg', 'Value_SlewNeg', 0.001, 0.5)),
          'mode_name': 'CURRENT',
          'params': (
-            ('IRANGE', 'r', 'Range_Current_.*'),
-            ('VRANGE', 'r', 'Range_Voltage_.*'),
+            ('IRANGE',          'r', 'Range_Current_.*'),
+            ('VRANGE',          'r', 'Range_Voltage_.*'),
             ('LEVEL:IMMEDIATE', 'f', 'Value_Current'),
-            ('SLEW:POSITIVE', 'f', 'Value_SlewPos'),
-            ('SLEW:NEGATIVE', 'f', 'Value_SlewNeg'),
+            ('SLEW:POSITIVE',   'f', 'Value_SlewPos'),
+            ('SLEW:NEGATIVE',   'f', 'Value_SlewNeg'),
           )
         },
     ('Basic', 'Power'):
@@ -76,8 +126,8 @@ _SDL_MODE_PARAMS = {
                      ('ValueLabel_Power', 'Value_Power', 0, 300)), # XXX
          'mode_name': 'POWER',
          'params': (
-            ('IRANGE', 'r', 'Range_Current_.*'),
-            ('VRANGE', 'r', 'Range_Voltage_.*'),
+            ('IRANGE',          'r', 'Range_Current_.*'),
+            ('VRANGE',          'r', 'Range_Voltage_.*'),
             ('LEVEL:IMMEDIATE', 'f', 'Value_Power'),
           )
         },
@@ -86,9 +136,23 @@ _SDL_MODE_PARAMS = {
                      ('ValueLabel_Resistance', 'Value_Resistance', 0, 10000)),
          'mode_name': 'RESISTANCE',
          'params': (
-            ('IRANGE', 'r', 'Range_Current_.*'),
-            ('VRANGE', 'r', 'Range_Voltage_.*'),
+            ('IRANGE',          'r', 'Range_Current_.*'),
+            ('VRANGE',          'r', 'Range_Voltage_.*'),
             ('LEVEL:IMMEDIATE', 'f', 'Value_Resistance'),
+          )
+        },
+    ('LED', None): # This behaves like a Basic mode
+        {'widgets': ('~ValueLabel_.*', '~Value_.*',
+                     ('ValueLabel_LEDV', 'Value_LEDV', 'V'),
+                     ('ValueLabel_LEDC', 'Value_LEDC', 'C'),
+                     ('ValueLabel_LEDR', 'Value_LEDR', 0.01, 1.0)),
+         'mode_name': 'LED',
+         'params': (
+            ('IRANGE',  'r', 'Range_Current_.*'),
+            ('VRANGE',  'r', 'Range_Voltage_.*'),
+            ('VOLTAGE', 'f', 'Value_LEDV'),
+            ('CURRENT', 'f', 'Value_LEDC'),
+            ('RCONF',   'f', 'Value_LEDR'),
           )
         },
     ('Dynamic', 'Voltage'):
@@ -159,9 +223,10 @@ _SDL_MODE_PARAMS = {
             ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
           )
         },
+
 }
 
-class InstrumentSiglentSDLConfigureWidget(QWidget):
+class InstrumentSiglentSDL1000ConfigureWidget(QWidget):
     def __init__(self, instrument):
         self._inst = instrument
         self._param_state = {}
@@ -184,40 +249,51 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                 param = f'{mode_name}:{param_spec[0]}'
                 val = self._inst.query(param+'?')
                 param_type = param_spec[1]
-                if param_type == 'b': # Boolean
-                    if val == '0':
-                        val = False
-                    else:
-                        val = True
-                elif param_type == 'f': # Float
+                if param_type == 'f': # Float
                     val = float(val)
-                elif param_type == 'd': # Decimal
+                elif param_type == 'b' or param_type == 'd': # Boolean or Decimal
                     val = int(val)
                 elif param_type == 's' or param_type == 'r': # Strings
-                    pass
+                    val = val.title()
                 else:
                     assert False, 'Unknown param_type '+str(param_type)
                 self._param_state[param] = val
 
-        # How do we know if we're in Dynamic mode??? XXX
-        if self._param_state[':LIST:STATE']: # In List mode
-            self._cur_overall_mode = 'List'
-        elif self._param_state[':PROGRAM:STATE']: # In Program mode
-            self._cur_overall_mode = 'Program'
-        elif self._param_state[':OCP:FUNC']: # In OCP mode
-            self._cur_overall_mode = 'OCPT'
-        elif self._param_state[':OPP:FUNC']: # In OPP mode
-            self._cur_overall_mode = 'OPPT'
-        elif self._param_state[':BATTERY:FUNC']: # In Battery mode
-            self._cur_overall_mode = 'Battery'
+        print(self._param_state[':FUNCTION:MODE'], self._param_state[':FUNCTION'], self._param_state[':FUNCTION:TRANSIENT'])
+        mode = self._param_state[':FUNCTION:MODE']
+        if mode == 'Ocp':
+            mode = 'OCPT'
+        elif mode == 'Opp':
+            mode = 'OPPT'
+        elif mode == 'Basic' and self._param_state[':FUNCTION'] == 'Led':
+            mode = 'LED'
+        elif mode == 'Tran':
+            mode = 'Dynamic'
         else:
-            self._cur_overall_mode = 'Basic'
-            self._cur_const_mode = self._param_state[':FUNCTION'].title()
+            mode = mode.title()
+        self._cur_overall_mode = mode
+        if mode == 'Basic':
+            self._cur_const_mode = self._param_state[':FUNCTION']
+        elif mode == 'Dynamic':
+            self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
+        else:
+            self._cur_const_mode = None
 
         self._update_widgets()
 
+    def update_measurements(self):
+        (voltage, current, power, resistance) = self._inst.measure_vcpr()
+        w = self._widget_registry['MeasureV']
+        w.setText('%10.6f V' % voltage)
+        w = self._widget_registry['MeasureC']
+        w.setText('%10.6f A' % current)
+        w = self._widget_registry['MeasureP']
+        w.setText('%10.6f W' % power)
+        w = self._widget_registry['MeasureR']
+        w.setText('%10.6f \u2126' % resistance)
+
     def _update_widgets(self):
-        if self._cur_overall_mode is None or self._cur_const_mode is None:
+        if self._cur_overall_mode is None:
             return
 
         param_info = self._cur_mode_param_info()
@@ -228,7 +304,7 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             if widget_name.startswith('Overall_'):
                 widget.setChecked(widget_name.endswith(self._cur_overall_mode))
             # Set the const mode radio buttons
-            if widget_name.startswith('Const_'):
+            if widget_name.startswith('Const_') and self._cur_const_mode is not None:
                 widget.setChecked(widget_name.endswith(self._cur_const_mode))
 
         # Enable or disable widgets based on the current overall mode
@@ -242,7 +318,14 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                 # Disable (and grey out) unused widgets
                 for trial_widget in self._widget_registry:
                     if re.fullmatch(widget_name[1:], trial_widget):
-                        self._widget_registry[trial_widget].setEnabled(False)
+                        widget = self._widget_registry[trial_widget]
+                        widget.setEnabled(False)
+                        if isinstance(widget, QRadioButton):
+                            # For disabled radio buttons we remove ALL selections so it
+                            # doesn't look confusing
+                            widget.button_group.setExclusive(False)
+                            widget.setChecked(False)
+                            widget.button_group.setExclusive(True)
             else:
                 for trial_widget in self._widget_registry:
                     if re.fullmatch(widget_name, trial_widget):
@@ -289,12 +372,6 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                             widget.show()
                             widget.setMinimum(min_val)
                             widget.setMaximum(max_val)
-                            # val = widget.value()
-                            # print(val)
-                            # if val < min_val:
-                            #     widget.setValue(min_val)
-                            # if val > max_val:
-                            #     widget.setValue(max_val)
 
         # Fill in widget values
         params = param_info['params']
@@ -302,7 +379,6 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         for scpi_cmd, param_type, widget_re in params:
             val = self._param_state[f':{mode_name}:{scpi_cmd}']
             if param_type == 'f' or param_type == 'd':
-                print(widget_re, val)
                 self._widget_registry[widget_re].setValue(val)
             elif param_type == 'r': # Radio button
                 for trial_widget in self._widget_registry:
@@ -310,11 +386,20 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                         checked = trial_widget.upper().endswith('_'+str(val).upper())
                         self._widget_registry[trial_widget].setChecked(checked)
 
+        # Update the Load ON/OFF button
+        self._change_load_onoff_button(self._param_state[':INPUT:STATE'])
+
     def _cur_mode_param_info(self):
         key = (self._cur_overall_mode, self._cur_const_mode)
         return _SDL_MODE_PARAMS[key]
 
     def _update_params(self, new_params):
+        # print('Old')
+        # print(pprint.pformat(self._param_state))
+        # print()
+        # print('New')
+        # print(pprint.pformat(new_params))
+        # print()
         for key, data in new_params.items():
             if data != self._param_state[key]:
                 fmt_data = data
@@ -327,15 +412,16 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                 self._inst.write(f'{key} {fmt_data}')
                 self._param_state[key] = data
 
-    def _update_widget_state():
-        """Update the widget state from the current params."""
-
 
     def _init_window(self):
         QWidget.__init__(self)
-        row_layout = QHBoxLayout(self)
-        self.setLayout(row_layout)
         self.setWindowTitle(f'Configure {self._inst._name}')
+        main_vert_layout = QVBoxLayout(self)
+        self.setLayout(main_vert_layout)
+        main_vert_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+
+        row_layout = QHBoxLayout()
+        main_vert_layout.addLayout(row_layout)
 
         # Overall mode: Basic, Dynamic, LED, Battery, List, Program, OCPT, OPPT
         layouts = QVBoxLayout()
@@ -348,10 +434,11 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         layoutv.setSpacing(1)
         bg = QButtonGroup(layouts)
         # Left column
-        for mode in ('Basic', 'LED', 'Battery', 'List', 'Program', 'OCPT', 'OPPT'):
+        for mode in ('Basic', 'LED', 'Battery', 'OCPT', 'OPPT'):
             rb = QRadioButton(mode)
             layoutv.addWidget(rb)
             bg.addButton(rb)
+            rb.button_group = bg
             rb.wid = mode
             rb.toggled.connect(self._on_click_overall_mode)
             self._widget_registry['Overall_'+mode] = rb
@@ -359,22 +446,25 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         layoutv = QVBoxLayout()
         layouth.addLayout(layoutv)
         layoutv.setSpacing(1)
-        rb = QRadioButton('Dynamic')
-        layoutv.addWidget(rb)
-        bg.addButton(rb)
-        rb.wid = 'Dynamic'
-        rb.toggled.connect(self._on_click_overall_mode)
-        self._widget_registry['Overall_Dynamic'] = rb
-        # Dynamics modes
-        bg = QButtonGroup(layouts)
-        for mode in ('Continuous', 'Pulse', 'Toggle'):
+        for mode in ('Dynamic', 'List', 'Program'):
             rb = QRadioButton(mode)
-            rb.setStyleSheet('padding-left: 25px;') # Indent
             layoutv.addWidget(rb)
             bg.addButton(rb)
+            rb.button_group = bg
             rb.wid = mode
-            rb.toggled.connect(self._on_click_dynamic_mode)
-            self._widget_registry['Dynamic_Mode_'+mode] = rb
+            rb.toggled.connect(self._on_click_overall_mode)
+            self._widget_registry['Overall_'+mode] = rb
+            if mode == 'Dynamic':
+                bg2 = QButtonGroup(layouts)
+                for mode in ('Continuous', 'Pulse', 'Toggle'):
+                    rb = QRadioButton(mode)
+                    rb.setStyleSheet('padding-left: 25px;') # Indent
+                    layoutv.addWidget(rb)
+                    bg2.addButton(rb)
+                    rb.button_group = bg
+                    rb.wid = mode
+                    rb.toggled.connect(self._on_click_dynamic_mode)
+                    self._widget_registry['Dynamic_Mode_'+mode] = rb
         layoutv.addStretch()
         layouts.addStretch()
 
@@ -384,8 +474,11 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         frame = QGroupBox('Constant')
         layouts.addWidget(frame)
         layoutv = QVBoxLayout(frame)
+        bg = QButtonGroup(layouts)
         for mode in ('Voltage', 'Current', 'Power', 'Resistance'):
             rb = QRadioButton(mode)
+            bg.addButton(rb)
+            rb.button_group = bg
             rb.wid = mode
             rb.sizePolicy().setRetainSizeWhenHidden(True)
             rb.toggled.connect(self._on_click_const_mode)
@@ -407,7 +500,8 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             for col_num, range_name in enumerate(ranges):
                 rb = QRadioButton(range_name)
                 bg.addButton(rb)
-                rb.wid = range_name.strip('VA')
+                rb.button_group = bg
+                rb.wid = range_name
                 rb.toggled.connect(self._on_click_range)
                 if len(ranges) == 1:
                     layout.addWidget(rb, row_num, col_num+1, 1, 2)
@@ -439,6 +533,9 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
                         ('B Level', 'BLevelR', '\u2126', 'TRANSIENT:BLEVEL'),
                         ('A Width', 'AWidth', 's', 'TRANSIENT:AWIDTH'),
                         ('B Width', 'BWidth', 's', 'TRANSIENT:BWIDTH'),
+                        ('Vo', 'LEDV', 'V', 'VOLTAGE'),
+                        ('Io', 'LEDC', 'A', 'CURRENT'),
+                        ('Rco', 'LEDR', '\u2126', 'RCONF')
                     ):
             layouth = QHBoxLayout()
             label = QLabel(display+':')
@@ -458,21 +555,82 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             self._widget_registry['ValueLabel_'+mode] = label
         layouts.addStretch()
 
-        self._w_on_off = QPushButton('LOAD IS OFF')
-        self._w_on_off.state = False
-        self._w_on_off.clicked.connect(self._on_click_on_off)
-        row_layout.addWidget(self._w_on_off)
+        ###################
+
+        row_layout = QHBoxLayout()
+        main_vert_layout.addLayout(row_layout)
+
+        w_on_off = QPushButton('LOAD IS OFF')
+        w_on_off.clicked.connect(self._on_click_on_off)
+        row_layout.addWidget(w_on_off)
+        self._widget_registry['LoadONOFF'] = w_on_off
+
+        ###################
+
+        row_layout = QHBoxLayout()
+        main_vert_layout.addLayout(row_layout)
+
+        row_layout.addStretch()
+        ss = """font-size: 30px; font-weight: bold;
+                min-width: 100px;
+             """
+        w = QLabel('0.000 V')
+        w.setStyleSheet(ss)
+        row_layout.addWidget(w)
+        self._widget_registry['MeasureV'] = w
+        w = QLabel('0.000 A')
+        w.setStyleSheet(ss)
+        row_layout.addWidget(w)
+        self._widget_registry['MeasureC'] = w
+        row_layout.addStretch()
+
+        row_layout = QHBoxLayout()
+        main_vert_layout.addLayout(row_layout)
+
+        row_layout.addStretch()
+        w = QLabel('0.000 W')
+        w.setStyleSheet(ss)
+        row_layout.addWidget(w)
+        self._widget_registry['MeasureP'] = w
+        w = QLabel('0.000 \u2126')
+        w.setStyleSheet(ss)
+        row_layout.addWidget(w)
+        self._widget_registry['MeasureR'] = w
+        row_layout.addStretch()
 
     def _on_click_overall_mode(self):
         rb = self.sender()
         if not rb.isChecked():
             return
         self._cur_overall_mode = rb.wid
-        new_params = self._param_state.copy()
+        new_params = {}
         if self._cur_overall_mode == 'Basic':
+            if self._cur_const_mode is None:
+                self._cur_const_mode = self._param_state[':FUNCTION']
+                if self._cur_const_mode == 'LED':
+                    # LED is weird in that the instrument treats it as a BASIC mode
+                    # but there's no CV/CC/CP/CR choice
+                    self._cur_const_mode = 'Voltage' # For lack of anything else to do
+            # Force update since this does more than set a parameter - it switches modes
+            self._param_state[':FUNCTION'] = None
             new_params[':FUNCTION'] = self._cur_const_mode
         elif self._cur_overall_mode == 'Dynamic':
+            if self._cur_const_mode is None:
+                self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
+            # Force update since this does more than set a parameter - it switches modes
+            self._param_state[':FUNCTION:TRANSIENT'] = None
             new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+        elif self._cur_overall_mode == 'LED':
+            # Force update since this does more than set a parameter - it switches modes
+            self._param_state[':FUNCTION'] = None
+            new_params[':FUNCTION'] = 'LED'
+            self._cur_const_mode = None
+        print('Modes', self._cur_overall_mode, self._cur_const_mode)
+
+        # Changing the mode turns off the load
+        new_params[':INPUT:STATE'] = 0
+        self._change_load_onoff_button(0)
+
         self._update_params(new_params)
         self._update_widgets()
 
@@ -482,9 +640,13 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             return
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
-        new_params = self._param_state.copy()
-        new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
-        new_params[f':{mode_name}:TRANSIENT:MODE'] = rb.wid
+        new_params = {':FUNCTION:TRANSIENT': self._cur_const_mode,
+                      f':{mode_name}:TRANSIENT:MODE': rb.wid}
+
+        # Changing the mode turns off the load
+        new_params[':INPUT:STATE'] = 0
+        self._change_load_onoff_button(0)
+
         self._update_params(new_params)
         self._update_widgets()
 
@@ -493,11 +655,15 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         if not rb.isChecked():
             return
         self._cur_const_mode = rb.wid
-        new_params = self._param_state.copy()
         if self._cur_overall_mode == 'Basic':
-            new_params[':FUNCTION'] = self._cur_const_mode
+            new_params = {':FUNCTION': self._cur_const_mode}
         elif self._cur_overall_mode == 'Dynamic':
-            new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+            new_params = {':FUNCTION:TRANSIENT': self._cur_const_mode}
+
+        # Changing the mode turns off the load
+        new_params[':INPUT:STATE'] = 0
+        self._change_load_onoff_button(0)
+
         self._update_params(new_params)
         self._update_widgets()
 
@@ -507,14 +673,18 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
             return
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
-        val = int(rb.wid)
-        new_params = self._param_state.copy()
-        # XXX Check for any V/I field exceeding this max_val and set to max_val
-        # XXX Change max_val on spinner box
-        if val in (36, 150):
-            new_params[f':{mode_name}:VRANGE'] = val
+        val = rb.wid
+        # print(self._cur_overall_mode, mode_name, val, type(val))
+        if val.endswith('V'):
+            if self._cur_overall_mode == 'Dynamic':
+                new_params = {f':{mode_name}:TRANSIENT:VRANGE': val.strip('V')}
+            else:
+                new_params = {f':{mode_name}:VRANGE': val.strip('V')}
         else:
-            new_params[f':{mode_name}:IRANGE'] = val
+            if self._cur_overall_mode == 'Dynamic':
+                new_params = {f':{mode_name}:TRANSIENT:IRANGE': val.strip('A')}
+            else:
+                new_params = {f':{mode_name}:IRANGE': val.strip('A')}
         self._update_params(new_params)
         self._update_widgets()
 
@@ -524,24 +694,36 @@ class InstrumentSiglentSDLConfigureWidget(QWidget):
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
         val = float(input.value())
-        new_params = self._param_state.copy()
-        new_params[f':{mode_name}:{scpi}'] = val
+        new_params = {f':{mode_name}:{scpi}': val}
         self._update_params(new_params)
         self._update_widgets()
 
     def _on_click_on_off(self):
         bt = self.sender()
-        if bt.state:
-            # Was on, now turn off
-            self._inst.set_input_state(0)
-            bt.setText('LOAD IS OFF')
-            bt.state = False
-            return
-        self._inst.set_input_state(1)
-        bt.setText('LOAD IS ON')
-        bt.state = True
+        state = 1-self._param_state[':INPUT:STATE']
+        new_params = {':INPUT:STATE': state}
+        self._change_load_onoff_button(state)
+        self._update_params(new_params)
 
-class InstrumentSiglentSDL(Device4882):
+    def _change_load_onoff_button(self, state):
+        bt = self._widget_registry['LoadONOFF']
+        if state:
+            bt.setText('LOAD IS ON')
+            bg_color = '#ff4040'
+        else:
+            bt.setText('LOAD IS OFF')
+            bg_color = '#40ff40'
+        ss = f"""background-color: {bg_color};
+                 min-width: 150px; min-height: 30px;
+                 border: 5px solid #000000;
+                 font-weight: bold; font-size: 22px;
+              """
+        bt.setStyleSheet(ss)
+
+
+##########################################################################################
+
+class InstrumentSiglentSDL1000(Device4882):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -560,13 +742,14 @@ class InstrumentSiglentSDL(Device4882):
             assert ValueError
         self._name = f'{self._model} @ {self._resource_name}'
         self._high_power = self._model in ('SDL1030X-E', 'SDL1030X')
+        self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
 
     def configure_widget(self):
-        return InstrumentSiglentSDLConfigureWidget(self)
+        return InstrumentSiglentSDL1000ConfigureWidget(self)
 
-    # def set_input_state(self, val):
-    #     self._validator_1(val)
-    #     self.write(f':INPUT:STATE {val}')
+    def set_input_state(self, val):
+        self._validator_1(val)
+        self.write(f':INPUT:STATE {val}')
 
     def measure_voltage(self):
         return float(self.query('MEAS:VOLT?'))
