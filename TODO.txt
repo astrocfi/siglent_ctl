@@ -1,46 +1,48 @@
+** PyInstaller **
 
-# px -> em
-# Measure external source
-# SHORT
-# List mode should follow along with the steps and highlight rows
-# Send manual trigger
-# Configure trigger source
-# Use 'P' for power limits and check high power flag
+pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6
 
-# [:SOURce]:LED: RCOnf {< value > | MINimum | MAXimum | DEFault}
+https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
-# BATT mode has no CV
-# [:SOURce]:BATTery:LEVel
-# [:SOURce]:BATTery:VOLTage - cutoff voltage
-# [:SOURce]:BATTery:CAPability = cutoff current
-# [:SOURce]:BATTery:TIMer = cutoff time  0 - 86400 integer seconds
-# [:SOURce]:BATTery:VOLTage:STATe {ON | OFF = use volt term condition?
-# CAP
-# TIMER
-# [:SOURce]:BATTery:DISCHArg:CAPability?
-# [:SOURce]:BATTery:DISCHArg:TIMer?
-# Undocumented: BATT:ADDCAP[?]
-# Undocumented: MACHINETIME?
+** General **
 
-# List mode
+- Clean up and document code
+- Add README file
 
-# Program mode
+** Acquisition **
 
-# OCP
-# OPP
+- Save to CSV
+- Load from CSV
 
-# Breakover voltage
-# External control switch
-# Current protection
-# Power protection
+** Plotting **
 
-# Save/load config of all parameters
+- Normal Plot View with multiple axes
+  - X axis can be time or another parameter
+- Histogram View
+- Running statistics
 
-# Various back of device terminals - sense
-# Stop on fail
-# Average count
-# External mode
+** SDL1000 **
 
-# Undocumented!
-# syst:remote:state 0/1 - lock keyboard and set remote icon
-# func:mode?  BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM (LED=BASIC)
+- Change name of configuration window to remove the word "Configuration"
+- "View" menu to turn on/off rows in the configuration widget
+- Implement Load/Save Configurations
+- Add menu to change device short name
+- Measure external source
+- Implement List mode
+  - Follow along with the steps and highlight rows
+- Implement Program mode
+  - Follow along with the steps and highlight rows
+- Implement Batt mode
+  - Batt mode has no CV
+  - Undocumented: BATT:ADDCAP[?]
+- Implement OCPT mode
+- Implement OPPT mode
+- Various other SDL features:
+  - Breakover voltage
+  - External control switch
+  - Current protection
+  - Power protection
+  - Sense various back of device terminals
+  - Stop on fail
+  - Average count
+  - External mode

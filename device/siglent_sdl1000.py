@@ -1,3 +1,30 @@
+################################################################################
+# siglent_sdl1000.py
+#
+# This file is part of the siglent_ctl software suite.
+#
+# It contains all code related to the Siglent SDL1000 series:
+#   - SDL1020X
+#   - SDL1020X-E
+#   - SDL1030X
+#   - SDL1030X-E
+#
+# Copyright 2022 Robert S. French (rfrench@rfrench.org)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+################################################################################
+
 import pprint
 import re
 
@@ -18,7 +45,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QGroupBox,
                              QHBoxLayout,
                              QVBoxLayout)
-from PyQt6.QtCore import *
+from PyQt6.QtCore import Qt
 
 from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
@@ -29,7 +56,7 @@ from .config_widget_base import ConfigureWidgetBase
 
 _SDL_OVERALL_MODES = {
     'Basic':   ('!Dynamic_Mode_.*', 'Const_.*',),
-    'Dynamic': ('Dynamic_Mode_.*', 'Const_.*',),
+    'Dynamic': ('Dynamic_Mode_.*',  'Const_.*',),
     'LED':     ('!Dynamic_Mode_.*', '!Const_.*',),
     'Battery': ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Voltage'),
     'List':    ('!Dynamic_Mode_.*', 'Const_.*',),
@@ -57,156 +84,188 @@ _SDL_MODE_PARAMS = {
          )
         },
     ('Basic', 'Voltage'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_T.*', '~Slew_T.*',
-                     'SlewLabel_B.*', 'Slew_B.*',
-                     '!SlewLabel_B.*', '!Slew_B.*',
-                     ('ValueLabel_Voltage', 'Value_Voltage', 'V')),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_Voltage', 'MainParameters_Voltage', 'V')),
          'mode_name': 'VOLTAGE',
          'params': (
             ('IRANGE',          'r', 'Range_Current_.*'),
             ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'Value_Voltage'),
+            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Voltage'),
           )
         },
     ('Basic', 'Current'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_T.*', '~Slew_T.*',
-                     ('ValueLabel_Current', 'Value_Current', 'C'),
-                     ('SlewLabel_BSlewPos', 'Slew_BSlewPos', 0.001, 0.5),
-                     ('SlewLabel_BSlewNeg', 'Slew_BSlewNeg', 0.001, 0.5)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_Current', 'MainParameters_Current', 'C'),
+                     ('AuxParametersLabel_BSlewPos', 'AuxParameters_BSlewPos', 0.001, 0.5),
+                     ('AuxParametersLabel_BSlewNeg', 'AuxParameters_BSlewNeg', 0.001, 0.5)),
          'mode_name': 'CURRENT',
          'params': (
             ('IRANGE',          'r', 'Range_Current_.*'),
             ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'Value_Current'),
-            ('SLEW:POSITIVE',   'f', 'Slew_BSlewPos'),
-            ('SLEW:NEGATIVE',   'f', 'Slew_BSlewNeg'),
+            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Current'),
+            ('SLEW:POSITIVE',   'f', 'AuxParameters_BSlewPos'),
+            ('SLEW:NEGATIVE',   'f', 'AuxParameters_BSlewNeg'),
           )
         },
     ('Basic', 'Power'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_T.*', '~Slew_T.*',
-                     'SlewLabel_B.*', 'Slew_B.*',
-                     '!SlewLabel_B.*', '!Slew_B.*',
-                     ('ValueLabel_Power', 'Value_Power', 'P')),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_Power', 'MainParameters_Power', 'P')),
          'mode_name': 'POWER',
          'params': (
             ('IRANGE',          'r', 'Range_Current_.*'),
             ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'Value_Power'),
+            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Power'),
           )
         },
     ('Basic', 'Resistance'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_T.*', '~Slew_T.*',
-                     'SlewLabel_B.*', 'Slew_B.*',
-                     '!SlewLabel_B.*', '!Slew_B.*',
-                     ('ValueLabel_Resistance', 'Value_Resistance', 0, 10000)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_Resistance', 'MainParameters_Resistance', 0, 10000)),
          'mode_name': 'RESISTANCE',
          'params': (
             ('IRANGE',          'r', 'Range_Current_.*'),
             ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'Value_Resistance'),
+            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Resistance'),
           )
         },
     ('LED', None): # This behaves like a Basic mode
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_T.*', '~Slew_T.*',
-                     'SlewLabel_B.*', 'Slew_B.*',
-                     '!SlewLabel_B.*', '!Slew_B.*',
-                     ('ValueLabel_LEDV', 'Value_LEDV', 'V'),
-                     ('ValueLabel_LEDC', 'Value_LEDC', 'C'),
-                     ('ValueLabel_LEDR', 'Value_LEDR', 0.01, 1.0)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_LEDV', 'MainParameters_LEDV', 'V'),
+                     ('MainParametersLabel_LEDC', 'MainParameters_LEDC', 'C'),
+                     ('MainParametersLabel_LEDR', 'MainParameters_LEDR', 0.01, 1.0)),
          'mode_name': 'LED',
          'params': (
             ('IRANGE',  'r', 'Range_Current_.*'),
             ('VRANGE',  'r', 'Range_Voltage_.*'),
-            ('VOLTAGE', 'f', 'Value_LEDV'),
-            ('CURRENT', 'f', 'Value_LEDC'),
-            ('RCONF',   'f', 'Value_LEDR'),
+            ('VOLTAGE', 'f', 'MainParameters_LEDV'),
+            ('CURRENT', 'f', 'MainParameters_LEDC'),
+            ('RCONF',   'f', 'MainParameters_LEDR'),
           )
         },
     ('Dynamic', 'Voltage'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_B.*', '~Slew_B.*',
-                     'SlewLabel_T.*', 'Slew_T.*',
-                     '!SlewLabel_T.*', '!Slew_T.*',
-                     ('ValueLabel_ALevelV', 'Value_ALevelV', 'V'),
-                     ('ValueLabel_BLevelV', 'Value_BLevelV', 'V'),
-                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
-                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 'V'),
+                     ('MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 'V'),
+                     ('MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
+                     ('MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999)),
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
             ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
             ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelV'),
-            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelV'),
-            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
-            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
+            ('TRANSIENT:ALEVEL', 'f', 'MainParameters_ALevelV'),
+            ('TRANSIENT:BLEVEL', 'f', 'MainParameters_BLevelV'),
+            ('TRANSIENT:AWIDTH', 'f', 'MainParameters_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'MainParameters_BWidth'),
           )
         },
     ('Dynamic', 'Current'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_B.*', '~Slew_B.*',
-                     ('ValueLabel_ALevelC', 'Value_ALevelC', 'C'),
-                     ('ValueLabel_BLevelC', 'Value_BLevelC', 'C'),
-                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
-                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999),
-                     ('SlewLabel_TSlewPos', 'Slew_TSlewPos', 0.001, 0.5),
-                     ('SlewLabel_TSlewNeg', 'Slew_TSlewNeg', 0.001, 0.5)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 'C'),
+                     ('MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 'C'),
+                     ('MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
+                     ('MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999),
+                     ('AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
+                     ('AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.5)),
          'mode_name': 'CURRENT',
          'params': (
-            ('TRANSIENT:IRANGE',         'r', 'Range_Current_.*'),
+            ('TRANSIENT:IRANGE',        'r', 'Range_Current_.*'),
             ('TRANSIENT:VRANGE',        'r', 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',           'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL',         'f', 'Value_ALevelC'),
-            ('TRANSIENT:BLEVEL',        'f', 'Value_BLevelC'),
-            ('TRANSIENT:AWIDTH',        'f', 'Value_AWidth'),
-            ('TRANSIENT:BWIDTH',        'f', 'Value_BWidth'),
-            ('TRANSIENT:SLEW:POSITIVE', 'f', 'Slew_TSlewPos'),
-            ('TRANSIENT:SLEW:NEGATIVE', 'f', 'Slew_TSlewNeg'),
+            ('TRANSIENT:MODE',          'r', 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL',        'f', 'MainParameters_ALevelC'),
+            ('TRANSIENT:BLEVEL',        'f', 'MainParameters_BLevelC'),
+            ('TRANSIENT:AWIDTH',        'f', 'MainParameters_AWidth'),
+            ('TRANSIENT:BWIDTH',        'f', 'MainParameters_BWidth'),
+            ('TRANSIENT:SLEW:POSITIVE', 'f', 'AuxParameters_TSlewPos'),
+            ('TRANSIENT:SLEW:NEGATIVE', 'f', 'AuxParameters_TSlewNeg'),
           )
         },
     ('Dynamic', 'Power'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_B.*', '~Slew_B.*',
-                     'SlewLabel_T.*', 'Slew_T.*',
-                     '!SlewLabel_T.*', '!Slew_T.*',
-                     ('ValueLabel_ALevelP', 'Value_ALevelP', 'P'),
-                     ('ValueLabel_BLevelP', 'Value_BLevelP', 'P'),
-                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
-                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 'P'),
+                     ('MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 'P'),
+                     ('MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
+                     ('MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999)),
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
             ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
             ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelP'),
-            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelP'),
-            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
-            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
+            ('TRANSIENT:ALEVEL', 'f', 'MainParameters_ALevelP'),
+            ('TRANSIENT:BLEVEL', 'f', 'MainParameters_BLevelP'),
+            ('TRANSIENT:AWIDTH', 'f', 'MainParameters_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'MainParameters_BWidth'),
           )
         },
     ('Dynamic', 'Resistance'):
-        {'widgets': ('~ValueLabel_.*', '~Value_.*',
-                     '~SlewLabel_B.*', '~Slew_B.*',
-                     'SlewLabel_T.*', 'Slew_T.*',
-                     '!SlewLabel_T.*', '!Slew_T.*',
-                     ('ValueLabel_ALevelR', 'Value_ALevelR', 0.03, 10000), # XXX
-                     ('ValueLabel_BLevelR', 'Value_BLevelR', 0.03, 10000),
-                     ('ValueLabel_AWidth', 'Value_AWidth', 1, 999),
-                     ('ValueLabel_BWidth', 'Value_BWidth', 1, 999)),
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.03, 10000),
+                     ('MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.03, 10000),
+                     ('MainParametersLabel_AWidth', 'MainParameters_AWidth', 1, 999),
+                     ('MainParametersLabel_BWidth', 'MainParameters_BWidth', 1, 999)),
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
             ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
             ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', 'f', 'Value_ALevelR'),
-            ('TRANSIENT:BLEVEL', 'f', 'Value_BLevelR'),
-            ('TRANSIENT:AWIDTH', 'f', 'Value_AWidth'),
-            ('TRANSIENT:BWIDTH', 'f', 'Value_BWidth'),
+            ('TRANSIENT:ALEVEL', 'f', 'MainParameters_ALevelR'),
+            ('TRANSIENT:BLEVEL', 'f', 'MainParameters_BLevelR'),
+            ('TRANSIENT:AWIDTH', 'f', 'MainParameters_AWidth'),
+            ('TRANSIENT:BWIDTH', 'f', 'MainParameters_BWidth'),
+          )
+        },
+    ('OCPT', None):
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_OCPV', 'MainParameters_OCPV', 'V'),
+                     ('MainParametersLabel_OCPSTART', 'MainParameters_OCPSTART', 'C'),
+                     ('MainParametersLabel_OCPEND', 'MainParameters_OCPEND', 'C'), # XXX 2 must be >= 1
+                     ('MainParametersLabel_OCPSTEP', 'MainParameters_OCPSTEP', 'C'),
+                     ('MainParametersLabel_OCPDELAY', 'MainParameters_OCPDELAY', 0.001, 999),
+                     ('AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 'C'),
+                     ('AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 'C')), # XXX 2 must be >= 1
+         'mode_name': 'OCP',
+         'params': (
+            ('IRANGE',     'r', 'Range_Current_.*'),
+            ('VRANGE',     'r', 'Range_Voltage_.*'),
+            ('VOLTAGE',    'f', 'MainParameters_OCPV'),
+            ('START',      'f', 'MainParameters_OCPSTART'),
+            ('END',        'f', 'MainParameters_OCPEND'),
+            ('STEP',       'f', 'MainParameters_OCPSTEP'),
+            ('STEP:DELAY', 'f', 'MainParameters_OCPDELAY'),
+            ('MIN',        'f', 'AuxParameters_OCPMIN'),
+            ('MAX',        'f', 'AuxParameters_OCPMAX'),
+          )
+        },
+    ('OPPT', None):
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_OPPV', 'MainParameters_OPPV', 'V'),
+                     ('MainParametersLabel_OPPSTART', 'MainParameters_OPPSTART', 'C'),
+                     ('MainParametersLabel_OPPEND', 'MainParameters_OPPEND', 'C'), # XXX 2 must be >= 1
+                     ('MainParametersLabel_OPPSTEP', 'MainParameters_OPPSTEP', 'C'),
+                     ('MainParametersLabel_OPPDELAY', 'MainParameters_OPPDELAY', 0.001, 999),
+                     ('AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 'C'),
+                     ('AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 'C')), # XXX 2 must be >= 1
+         'mode_name': 'OPP',
+         'params': (
+            ('IRANGE',     'r', 'Range_Current_.*'),
+            ('VRANGE',     'r', 'Range_Voltage_.*'),
+            ('VOLTAGE',    'f', 'MainParameters_OPPV'),
+            ('START',      'f', 'MainParameters_OPPSTART'),
+            ('END',        'f', 'MainParameters_OPPEND'),
+            ('STEP',       'f', 'MainParameters_OPPSTEP'),
+            ('STEP:DELAY', 'f', 'MainParameters_OPPDELAY'),
+            ('MIN',        'f', 'AuxParameters_OPPMIN'),
+            ('MAX',        'f', 'AuxParameters_OPPMAX'),
           )
         },
 
@@ -274,7 +333,25 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         self._update_widgets()
 
+    def measurement_details(self):
+        """Return metadata about the available measurements."""
+        ret = []
+        if self._enable_measurement_v:
+            ret.append({'name': 'Voltage',
+                        'units': 'V'})
+        if self._enable_measurement_c:
+            ret.append({'name': 'Current',
+                        'units': 'A'})
+        if self._enable_measurement_p:
+            ret.append({'name': 'Power',
+                        'units': 'W'})
+        if self._enable_measurement_r:
+            ret.append({'name': 'Resistance',
+                        'units': '\u2126'})
+        return ret
+
     def update_measurements(self):
+        """Read current values, update control panel display, return the values."""
         # Update the load on/off state in case we hit a protection limit
         input_state = int(self._inst.query(':INPUT:STATE?'))
         if self._param_state[':INPUT:STATE'] != input_state:
@@ -601,11 +678,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     layout.addWidget(rb, row_num, col_num+1)
                 self._widget_registry['Range_'+mode+'_'+range_name.strip('VA')] = rb
 
-        frame = self._init_widgets_value_box('Slew', (
+        frame = self._init_widgets_value_box('Aux Parameters', (
                     ('Slew (rise)', 'BSlewPos', 'A/\u00B5', 'SLEW:POSITIVE'),
                     ('Slew (fall)', 'BSlewNeg', 'A/\u00B5', 'SLEW:NEGATIVE'),
                     ('Slew (rise)', 'TSlewPos', 'A/\u00B5', 'TRANSIENT:SLEW:POSITIVE'),
-                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5', 'TRANSIENT:SLEW:NEGATIVE')))
+                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5', 'TRANSIENT:SLEW:NEGATIVE'),
+                    ('I Min', 'OCPMIN', 'A', 'MIN'),
+                    ('I Max', 'OCPMAX', 'A', 'MAX'),
+                    ('P Min', 'OPPMIN', 'W', 'MIN'),
+                    ('P Max', 'OPPMAX', 'W', 'MAX'),
+                    ))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 5em; max-height: 5em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -615,7 +697,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ### COLUMN 4 ###
 
-        frame = self._init_widgets_value_box('Value', (
+        frame = self._init_widgets_value_box('Main Parameters', (
                     ('Voltage', 'Voltage', 'V', 'LEVEL:IMMEDIATE'),
                     ('Current', 'Current', 'A', 'LEVEL:IMMEDIATE'),
                     ('Power', 'Power', 'W', 'LEVEL:IMMEDIATE'),
@@ -632,7 +714,17 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     ('B Width', 'BWidth', 's', 'TRANSIENT:BWIDTH'),
                     ('Vo', 'LEDV', 'V', 'VOLTAGE'),
                     ('Io', 'LEDC', 'A', 'CURRENT'),
-                    ('Rco', 'LEDR', '\u2126', 'RCONF')))
+                    ('Rco', 'LEDR', '\u2126', 'RCONF'),
+                    ('Prot V', 'OCPV', 'V', 'VOLTAGE'),
+                    ('I Start', 'OCPSTART', 'A', 'START'),
+                    ('I End', 'OCPEND', 'A', 'END'),
+                    ('I Step', 'OCPSTEP', 'A', 'STEP'),
+                    ('Step Delay', 'OCPDELAY', 's', 'STEP:DELAY'),
+                    ('Prot V', 'OPPV', 'V', 'VOLTAGE'),
+                    ('P Start', 'OPPSTART', 'W', 'START'),
+                    ('P End', 'OPPEND', 'W', 'END'),
+                    ('P Step', 'OPPSTEP', 'W', 'STEP'),
+                    ('Step Delay', 'OPPDELAY', 's', 'STEP:DELAY')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 10em; max-height: 10em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -795,6 +887,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     def _init_widgets_value_box(self, title, details):
         # Value for most modes
         frame = QGroupBox(title)
+        widget_prefix = title.replace(' ', '')
         layoutv = QVBoxLayout(frame)
         for (display, mode, unit, scpi) in details:
             layouth = QHBoxLayout()
@@ -812,8 +905,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             label.sizePolicy().setRetainSizeWhenHidden(True)
             input.sizePolicy().setRetainSizeWhenHidden(True)
             layoutv.addLayout(layouth)
-            self._widget_registry[f'{title}_{mode}'] = input
-            self._widget_registry[f'{title}Label_{mode}'] = label
+            self._widget_registry[f'{widget_prefix}_{mode}'] = input
+            self._widget_registry[f'{widget_prefix}Label_{mode}'] = label
         layoutv.addStretch()
         return frame
 
@@ -836,6 +929,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     # LED is weird in that the instrument treats it as a BASIC mode
                     # but there's no CV/CC/CP/CR choice
                     self._cur_const_mode = 'Voltage' # For lack of anything else to do
+                elif self._cur_const_mode in ('OCP', 'OPP'):
+                    # We lose information going from OCP/OPP back to Basic because we don't
+                    # know which basic mode we were in before!
+                    self._cur_const_mode = 'Voltage'
             # Force update since this does more than set a parameter - it switches modes
             self._param_state[':FUNCTION'] = None
             new_params[':FUNCTION'] = self._cur_const_mode
@@ -853,6 +950,13 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             # Force update since this does more than set a parameter - it switches modes
             self._param_state[':FUNCTION'] = None
             new_params[':FUNCTION'] = 'LED'
+            self._cur_const_mode = None
+        elif self._cur_overall_mode == 'OCPT':
+            # This is not a parameter with a state - it's just a command to switch modes
+            # The normal :FUNCTION tells us we're in the OCP mode, but it doesn't allow
+            # us to SWITCH TO the OCP mode!
+            self._inst.write(':OCP:FUNC')
+            self._param_state[':FUNCTION'] = 'OCP'
             self._cur_const_mode = None
 
         # Changing the mode turns off the load and short
@@ -1023,6 +1127,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
 
 ##########################################################################################
+##########################################################################################
+##########################################################################################
+
 
 class InstrumentSiglentSDL1000(Device4882):
     def __init__(self, *args, **kwargs):
@@ -1240,45 +1347,45 @@ class InstrumentSiglentSDL1000(Device4882):
 [:SOURce]:LIST:STATe:ON
 [:SOURce]:LIST:STATe?
 
-[:SOURce]:OCP:FUNC
-[:SOURce]:OCP:FUNC?
-[:SOURce]:OCP:IRANGe?
-[:SOURce]:OCP:VRANGe <value>
-[:SOURce]:OCP:VRANGe?
-[:SOURce]:OCP:STARt {< value: float,int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:STARt?
-[:SOURce]:OCP:STEP {< value: float?, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:STEP?
-[:SOURce]:OCP:STEP:DELay {< value: float, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:STEP:DELay?
-[:SOURce]:OCP:END {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:END?
-[:SOURce]:OCP:MIN {< value: float,int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:MIN?
-[:SOURce]:OCP:MAX {< value: float, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:MAX?
-[:SOURce]:OCP:VOLTage <value: float, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OCP:VOLTage?
+# [:SOURce]:OCP:FUNC
+# [:SOURce]:OCP:FUNC?
+# [:SOURce]:OCP:IRANGe?
+# [:SOURce]:OCP:VRANGe <value>
+# [:SOURce]:OCP:VRANGe?
+# [:SOURce]:OCP:STARt {< value: float,int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:STARt?
+# [:SOURce]:OCP:STEP {< value: float?, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:STEP?
+# [:SOURce]:OCP:STEP:DELay {< value: float, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:STEP:DELay?
+# [:SOURce]:OCP:END {< value > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:END?
+# [:SOURce]:OCP:MIN {< value: float,int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:MIN?
+# [:SOURce]:OCP:MAX {< value: float, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:MAX?
+# [:SOURce]:OCP:VOLTage <value: float, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OCP:VOLTage?
 
-[:SOURce]:OPP:FUNC
-[:SOURce]:OPP:FUNC?
-[:SOURce]:OPP:IRANGe?
-[:SOURce]:OPP:VRANGe <value>
-[:SOURce]:OPP:VRANGe?
-[:SOURce]:OPP:STARt {< value: float,int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:STARt?
-[:SOURce]:OPP:STEP {< value: float?, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:STEP?
-[:SOURce]:OPP:STEP:DELay {< value: float, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:STEP:DELay?
-[:SOURce]:OPP:END {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:END?
-[:SOURce]:OPP:MIN {< value: float,int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:MIN?
-[:SOURce]:OPP:MAX {< value: float, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:MAX?
-[:SOURce]:OPP:VOLTage <value: float, int > | MINimum | MAXimum | DEFault}
-[:SOURce]:OPP:VOLTage?
+# [:SOURce]:OPP:FUNC
+# [:SOURce]:OPP:FUNC?
+# [:SOURce]:OPP:IRANGe?
+# [:SOURce]:OPP:VRANGe <value>
+# [:SOURce]:OPP:VRANGe?
+# [:SOURce]:OPP:STARt {< value: float,int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:STARt?
+# [:SOURce]:OPP:STEP {< value: float?, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:STEP?
+# [:SOURce]:OPP:STEP:DELay {< value: float, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:STEP:DELay?
+# [:SOURce]:OPP:END {< value > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:END?
+# [:SOURce]:OPP:MIN {< value: float,int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:MIN?
+# [:SOURce]:OPP:MAX {< value: float, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:MAX?
+# [:SOURce]:OPP:VOLTage <value: float, int > | MINimum | MAXimum | DEFault}
+# [:SOURce]:OPP:VOLTage?
 
 
 [:SOURce]:PROGram:STEP {< number > | MINimum | MAXimum | DEFault}
