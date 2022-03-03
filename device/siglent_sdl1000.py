@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QGroupBox,
                              QHBoxLayout,
                              QVBoxLayout)
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
 
 from .device import Device4882
@@ -80,6 +81,7 @@ _SDL_MODE_PARAMS = {
             # FUNCtion:MODE is undocumented! Possible return values are:
             #   BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
             ('FUNCTION:MODE',      's', None),
+            ('BATTERY:MODE',       's', None),
             ('TRIGGER:SOURCE',     's', None),
          )
         },
@@ -144,6 +146,57 @@ _SDL_MODE_PARAMS = {
             ('VOLTAGE', 'f', 'MainParameters_LEDV'),
             ('CURRENT', 'f', 'MainParameters_LEDC'),
             ('RCONF',   'f', 'MainParameters_LEDR'),
+          )
+        },
+    ('Battery', 'Current'):
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_BATTC', 'MainParameters_BATTC', 'C'),
+                     ('MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 'V'),
+                     ('MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+                     ('MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400)),
+         'mode_name': 'BATTERY',
+         'params': (
+            ('IRANGE',  'r', 'Range_Current_.*'),
+            ('VRANGE',  'r', 'Range_Voltage_.*'),
+            ('LEVEL',   'f', 'MainParameters_BATTC'),
+            ('VOLTAGE', 'f', 'MainParameters_BATTVSTOP'),
+            ('CAP',     'f', 'MainParameters_BATTCAPSTOP'),
+            ('TIMER',   'f', 'MainParameters_BATTTSTOP'),
+          )
+        },
+    ('Battery', 'Power'):
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_BATTP', 'MainParameters_BATTP', 'P'),
+                     ('MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 'V'),
+                     ('MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+                     ('MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400)),
+         'mode_name': 'BATTERY',
+         'params': (
+            ('IRANGE',  'r', 'Range_Current_.*'),
+            ('VRANGE',  'r', 'Range_Voltage_.*'),
+            ('LEVEL',   'f', 'MainParameters_BATTP'),
+            ('VOLTAGE', 'f', 'MainParameters_BATTVSTOP'),
+            ('CAP',     'f', 'MainParameters_BATTCAPSTOP'),
+            ('TIMER',   'f', 'MainParameters_BATTTSTOP'),
+          )
+        },
+    ('Battery', 'Resistance'):
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     ('MainParametersLabel_BATTR', 'MainParameters_BATTR', 0, 10000),
+                     ('MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 'V'),
+                     ('MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+                     ('MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400)),
+         'mode_name': 'BATTERY',
+         'params': (
+            ('IRANGE',  'r', 'Range_Current_.*'),
+            ('VRANGE',  'r', 'Range_Voltage_.*'),
+            ('LEVEL',   'f', 'MainParameters_BATTR'),
+            ('VOLTAGE', 'f', 'MainParameters_BATTVSTOP'),
+            ('CAP',     'f', 'MainParameters_BATTCAPSTOP'),
+            ('TIMER',   'f', 'MainParameters_BATTTSTOP'),
           )
         },
     ('Dynamic', 'Voltage'):
@@ -328,6 +381,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             mode_name = param_info['mode_name']
             val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
             self._cur_dynamic_mode = val
+        elif mode == 'Battery':
+            self._cur_const_mode = self._param_state[':BATTERY:MODE']
         else:
             self._cur_const_mode = None
 
@@ -485,7 +540,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     if range_type == 'C':
                         min_val = 0
                         max_val = float(self._param_state[f':{mode_name}{trans}:IRANGE'])
-                        print(max_val)
                     elif range_type == 'V':
                         min_val = 0
                         max_val = float(self._param_state[f':{mode_name}{trans}:VRANGE'])
@@ -575,13 +629,35 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
     def _init_widgets(self):
         toplevel_widget = self._toplevel_widget()
+
+        ### Update menubar
+
+        action = QAction('&Parameters', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_parameters)
+        self._menubar_view.addAction(action)
+        action = QAction('&Load and Trigger', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_load_trigger)
+        self._menubar_view.addAction(action)
+        action = QAction('&Measurements', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_measurements)
+        self._menubar_view.addAction(action)
+
+        ### Set up window widgets
+
         main_vert_layout = QVBoxLayout(toplevel_widget)
         main_vert_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
-        row_layout = QHBoxLayout()
-        main_vert_layout.addLayout(row_layout)
-
         ###### ROW 1 ######
+
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_row_parameters = w;
 
         ### COLUMN 1 ###
 
@@ -715,6 +791,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     ('Vo', 'LEDV', 'V', 'VOLTAGE'),
                     ('Io', 'LEDC', 'A', 'CURRENT'),
                     ('Rco', 'LEDR', '\u2126', 'RCONF'),
+                    ('Current', 'BATTC', 'A', 'LEVEL'),
+                    ('Power', 'BATTP', 'W', 'LEVEL'),
+                    ('Resistance', 'BATTR', '\u2126', 'LEVEL'),
+                    ('V Stop', 'BATTVSTOP', 'V', 'VOLTAGE'),
+                    ('Cap Stop', 'BATTCAPSTOP', 'mAh', 'CAP'),
+                    ('Time Stop', 'BATTTSTOP', 's', 'TIMER'),
                     ('Prot V', 'OCPV', 'V', 'VOLTAGE'),
                     ('I Start', 'OCPSTART', 'A', 'START'),
                     ('I End', 'OCPEND', 'A', 'END'),
@@ -736,8 +818,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ###### ROW 2 ######
 
+        w = QWidget()
         row_layout = QHBoxLayout()
-        main_vert_layout.addLayout(row_layout)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_row_trigger = w;
 
         layoutv = QVBoxLayout()
         layoutv.setSpacing(0)
@@ -812,8 +898,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ###### ROW 3 ######
 
+        w = QWidget()
         row_layout = QHBoxLayout()
-        main_vert_layout.addLayout(row_layout)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_row_measurements = w;
 
         layoutv = QVBoxLayout()
         layoutv.setSpacing(0)
@@ -915,6 +1005,24 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     ### ACTION HANDLERS
     ############################################################################
 
+    def _menu_do_view_parameters(self, state):
+        if state:
+            self._widget_row_parameters.show()
+        else:
+            self._widget_row_parameters.hide()
+
+    def _menu_do_view_load_trigger(self, state):
+        if state:
+            self._widget_row_trigger.show()
+        else:
+            self._widget_row_trigger.hide()
+
+    def _menu_do_view_measurements(self, state):
+        if state:
+            self._widget_row_measurements.show()
+        else:
+            self._widget_row_measurements.hide()
+
     def _on_click_overall_mode(self):
         rb = self.sender()
         if not rb.isChecked():
@@ -922,42 +1030,60 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._cur_overall_mode = rb.wid
         self._cur_dynamic_mode = None
         new_params = {}
-        if self._cur_overall_mode == 'Basic':
-            if self._cur_const_mode is None:
-                self._cur_const_mode = self._param_state[':FUNCTION']
-                if self._cur_const_mode == 'LED':
-                    # LED is weird in that the instrument treats it as a BASIC mode
-                    # but there's no CV/CC/CP/CR choice
-                    self._cur_const_mode = 'Voltage' # For lack of anything else to do
-                elif self._cur_const_mode in ('OCP', 'OPP'):
-                    # We lose information going from OCP/OPP back to Basic because we don't
-                    # know which basic mode we were in before!
-                    self._cur_const_mode = 'Voltage'
-            # Force update since this does more than set a parameter - it switches modes
-            self._param_state[':FUNCTION'] = None
-            new_params[':FUNCTION'] = self._cur_const_mode
-        elif self._cur_overall_mode == 'Dynamic':
-            if self._cur_const_mode is None:
-                self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
-            param_info = self._cur_mode_param_info()
-            mode_name = param_info['mode_name']
-            val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
-            self._cur_dynamic_mode = val
-            # Force update since this does more than set a parameter - it switches modes
-            self._param_state[':FUNCTION:TRANSIENT'] = None
-            new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
-        elif self._cur_overall_mode == 'LED':
-            # Force update since this does more than set a parameter - it switches modes
-            self._param_state[':FUNCTION'] = None
-            new_params[':FUNCTION'] = 'LED'
-            self._cur_const_mode = None
-        elif self._cur_overall_mode == 'OCPT':
-            # This is not a parameter with a state - it's just a command to switch modes
-            # The normal :FUNCTION tells us we're in the OCP mode, but it doesn't allow
-            # us to SWITCH TO the OCP mode!
-            self._inst.write(':OCP:FUNC')
-            self._param_state[':FUNCTION'] = 'OCP'
-            self._cur_const_mode = None
+        match self._cur_overall_mode:
+            case 'Basic':
+                if self._cur_const_mode is None:
+                    self._cur_const_mode = self._param_state[':FUNCTION']
+                    if self._cur_const_mode == 'LED':
+                        # LED is weird in that the instrument treats it as a BASIC mode
+                        # but there's no CV/CC/CP/CR choice
+                        self._cur_const_mode = 'Voltage' # For lack of anything else to do
+                    elif self._cur_const_mode in ('OCP', 'OPP'):
+                        # We lose information going from OCP/OPP back to Basic because
+                        # we don'tknow which basic mode we were in before!
+                        self._cur_const_mode = 'Voltage'
+                # Force update since this does more than set a parameter - it switches
+                # modes
+                self._param_state[':FUNCTION'] = None
+                new_params[':FUNCTION'] = self._cur_const_mode
+            case 'Dynamic':
+                if self._cur_const_mode is None:
+                    self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
+                param_info = self._cur_mode_param_info()
+                mode_name = param_info['mode_name']
+                val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
+                self._cur_dynamic_mode = val
+                # Force update since this does more than set a parameter - it switches
+                # modes
+                self._param_state[':FUNCTION:TRANSIENT'] = None
+                new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+            case 'LED':
+                # Force update since this does more than set a parameter - it switches
+                # modes
+                self._param_state[':FUNCTION'] = None
+                new_params[':FUNCTION'] = 'LED'
+                self._cur_const_mode = None
+            case 'Battery':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in the Battery mode, but it
+                # doesn't allow us to SWITCH TO the OCP mode!
+                self._inst.write(':BATTERY:FUNC')
+                self._param_state[':FUNCTION'] = 'Battery'
+                self._cur_const_mode = self._param_state[':BATTERY:MODE']
+            case 'OCPT':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in OCP mode, but it
+                # doesn't allow us to SWITCH TO the OCP mode!
+                self._inst.write(':OCP:FUNC')
+                self._param_state[':FUNCTION'] = 'OCP'
+                self._cur_const_mode = None
+            case 'OPPT':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in OPP mode, but it
+                # doesn't allow us to SWITCH TO the OCP mode!
+                self._inst.write(':OPP:FUNC')
+                self._param_state[':FUNCTION'] = 'OPP'
+                self._cur_const_mode = None
 
         # Changing the mode turns off the load and short
         # We have to do this manually in order for the later mode change to take effect
@@ -996,6 +1122,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             new_params = {':FUNCTION': self._cur_const_mode}
         elif self._cur_overall_mode == 'Dynamic':
             new_params = {':FUNCTION:TRANSIENT': self._cur_const_mode}
+        elif self._cur_overall_mode == 'Battery':
+            new_params = {':BATTERY:MODE': self._cur_const_mode}
 
         # Changing the mode turns off the load and short
         # We have to do this manually in order for the later mode change to take effect
@@ -1117,7 +1245,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._widget_registry['Trigger_Ext'].setChecked(src == 'External')
 
         enabled = False
-        print(self._cur_overall_mode, self._cur_dynamic_mode, src, self._param_state[':INPUT:STATE'])
         if (self._cur_overall_mode == 'Dynamic' and
             self._cur_dynamic_mode != 'Continuous' and
             src == 'Bus' and

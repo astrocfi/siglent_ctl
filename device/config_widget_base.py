@@ -49,7 +49,6 @@ class ConfigureWidgetBase(QWidget):
         self._inst = instrument
         self._param_state = {}
         self._widget_registry = {}
-        self._menubar = None
         self._statusbar = None
         self._init_widgets()
         self.show() # Do this here so all the widgets get their sizes before being hidden
@@ -63,7 +62,7 @@ class ConfigureWidgetBase(QWidget):
 
     def _toplevel_widget(self):
         QWidget.__init__(self)
-        self.setWindowTitle(f'Configure {self._inst._long_name} ({self._inst._name})')
+        self.setWindowTitle(f'{self._inst._long_name} ({self._inst._name})')
 
         layoutv = QVBoxLayout(self)
         layoutv.setSpacing(0)
@@ -85,6 +84,8 @@ class ConfigureWidgetBase(QWidget):
         action = QAction('Reset device to &default', self)
         action.triggered.connect(self._menu_do_reset_device)
         self._menubar_configure.addAction(action)
+
+        self._menubar_view = self._menubar.addMenu('&View')
 
         self._menubar_help = self._menubar.addMenu('&Help')
         action = QAction('&About', self)

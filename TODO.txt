@@ -23,8 +23,14 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** SDL1000 **
 
-- Change name of configuration window to remove the word "Configuration"
-- "View" menu to turn on/off rows in the configuration widget
+- Implement Batt mode
+  - Undocumented: BATT:ADDCAP[?]
+  - Add checkboxes next to V/C/T STOP to enable state
+  - Add display of measured cumulative battery capacity
+  - Add display of discharging time
+  - Consolidate information from widgets and params
+    - Add ability to specify # of digits of precision
+    - Time is in integer seconds
 - Implement Load/Save Configurations
 - Add menu to change device short name
 - Measure external source
@@ -32,9 +38,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
   - Follow along with the steps and highlight rows
 - Implement Program mode
   - Follow along with the steps and highlight rows
-- Implement Batt mode
-  - Batt mode has no CV
-  - Undocumented: BATT:ADDCAP[?]
 - Implement OCPT mode
 - Implement OPPT mode
 - Various other SDL features:
@@ -46,3 +49,19 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
   - Stop on fail
   - Average count
   - External mode
+
+** SDS **
+
+Siglent Technologies,SDS1204X-E,SDSMMEBQ4R5097,8.2.6.1.37R2
+
+** SPD **
+
+Siglent Technologies,SPD3303X-E,SPD3XIDD5R6400,1.01.01.02.07R2,V3.0
+
+** SDG **
+
+Siglent Technologies,SDG1062X,SDG1XCAQ4R3005,1.01.01.33R1B6
+
+** SDM **
+
+Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
