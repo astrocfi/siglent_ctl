@@ -8,29 +8,19 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 - Clean up and document code
 - Add README file
-
-** Acquisition **
-
-- Save to CSV
-- Load from CSV
-
-** Plotting **
-
-- Normal Plot View with multiple axes
-  - X axis can be time or another parameter
-- Histogram View
-- Running statistics
+- Set "remote off" and disconnect VISA port when configuration window is closed
+- Add error checking to opening resource and other VISA accesses
 
 ** SDL1000 **
 
+- Slew pos/neg have to be in the same "range" 0.001-0.01 or 0.01-0.5
 - Implement Batt mode
-  - Undocumented: BATT:ADDCAP[?]
-  - Add checkboxes next to V/C/T STOP to enable state
-  - Add display of measured cumulative battery capacity
-  - Add display of discharging time
-  - Consolidate information from widgets and params
-    - Add ability to specify # of digits of precision
-    - Time is in integer seconds
+  - Undocumented: BATT:ADDCAP[?] (displayed in EasySDL)
+  - Figure out how to know when the batt test is complete
+  - Add checkboxes next to V/C/T STOP to enable state and grey out box when unchecked
+  - Add display of measured cumulative battery capacity      [:SOURce]:BATTery:DISCHArg:CAPability?
+  - Add display of discharging time      [:SOURce]:BATTery:DISCHArg:TIMer?
+- Add battery capacity report - start/end V, A draw, total Ah, total time
 - Implement Load/Save Configurations
 - Add menu to change device short name
 - Measure external source
@@ -38,8 +28,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
   - Follow along with the steps and highlight rows
 - Implement Program mode
   - Follow along with the steps and highlight rows
-- Implement OCPT mode
-- Implement OPPT mode
 - Various other SDL features:
   - Breakover voltage
   - External control switch
@@ -65,3 +53,15 @@ Siglent Technologies,SDG1062X,SDG1XCAQ4R3005,1.01.01.33R1B6
 ** SDM **
 
 Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
+
+** Acquisition **
+
+- Save to CSV
+- Load from CSV
+
+** Plotting **
+
+- Normal Plot View with multiple axes
+  - X axis can be time or another parameter
+- Histogram View
+- Running statistics

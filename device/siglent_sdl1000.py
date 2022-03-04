@@ -29,21 +29,21 @@ import pprint
 import re
 
 from PyQt6.QtWidgets import (QWidget,
-                             QDialog,
-                             QMessageBox,
-                             QLabel,
-                             QLineEdit,
-                             QPushButton,
-                             QCheckBox,
-                             QRadioButton,
                              QAbstractSpinBox,
-                             QDoubleSpinBox,
-                             QSpinBox,
                              QButtonGroup,
-                             QLayout,
+                             QCheckBox,
+                             QDialog,
+                             QDoubleSpinBox,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
+                             QLabel,
+                             QLayout,
+                             QLineEdit,
+                             QMessageBox,
+                             QPushButton,
+                             QRadioButton,
+                             QSpinBox,
                              QVBoxLayout)
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
@@ -51,9 +51,6 @@ from PyQt6.QtCore import Qt
 from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
 
-
-# XXX There's a complicated thing with slew rise/fall where they have to both be in
-# the same range 0.001-0.01 or 0.01-0.5
 
 _SDL_OVERALL_MODES = {
     'Basic':   ('!Dynamic_Mode_.*', 'Const_.*',),
@@ -68,7 +65,8 @@ _SDL_OVERALL_MODES = {
 
 _SDL_MODE_PARAMS = {
     ('General'):
-        {'widgets': None,
+        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*'),
          'mode_name': None,
          'params': (
             # SYST:REMOTE:STATE is undocumented! It locks the keyboard and
@@ -86,239 +84,269 @@ _SDL_MODE_PARAMS = {
          )
         },
     ('Basic', 'Voltage'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_Voltage', 'MainParameters_Voltage', 'V')),
+        {'widgets':  None,
          'mode_name': 'VOLTAGE',
          'params': (
-            ('IRANGE',          'r', 'Range_Current_.*'),
-            ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Voltage'),
+            ('IRANGE',            'r', None, 'Range_Current_.*'),
+            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
+            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Voltage', 'MainParameters_Voltage', 0, 'V'),
           )
         },
     ('Basic', 'Current'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_Current', 'MainParameters_Current', 'C'),
-                     ('AuxParametersLabel_BSlewPos', 'AuxParameters_BSlewPos', 0.001, 0.5),
-                     ('AuxParametersLabel_BSlewNeg', 'AuxParameters_BSlewNeg', 0.001, 0.5)),
+        {'widgets': None,
          'mode_name': 'CURRENT',
          'params': (
-            ('IRANGE',          'r', 'Range_Current_.*'),
-            ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Current'),
-            ('SLEW:POSITIVE',   'f', 'AuxParameters_BSlewPos'),
-            ('SLEW:NEGATIVE',   'f', 'AuxParameters_BSlewNeg'),
+            ('IRANGE',            'r', None, 'Range_Current_.*'),
+            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
+            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Current', 'MainParameters_Current', 0, 'C'),
+            ('SLEW:POSITIVE',   '.3f', 'AuxParametersLabel_BSlewPos', 'AuxParameters_BSlewPos', 0.001, 2.5),
+            ('SLEW:NEGATIVE',   '.3f', 'AuxParametersLabel_BSlewNeg', 'AuxParameters_BSlewNeg', 0.001, 2.5),
           )
         },
     ('Basic', 'Power'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_Power', 'MainParameters_Power', 'P')),
+        {'widgets': None,
          'mode_name': 'POWER',
          'params': (
-            ('IRANGE',          'r', 'Range_Current_.*'),
-            ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Power'),
+            ('IRANGE',            'r', None, 'Range_Current_.*'),
+            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
+            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Power', 'MainParameters_Power', 0, 'P'),
           )
         },
     ('Basic', 'Resistance'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_Resistance', 'MainParameters_Resistance', 0, 10000)),
+        {'widgets': None,
          'mode_name': 'RESISTANCE',
          'params': (
-            ('IRANGE',          'r', 'Range_Current_.*'),
-            ('VRANGE',          'r', 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', 'f', 'MainParameters_Resistance'),
+            ('IRANGE',            'r', None, 'Range_Current_.*'),
+            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
+            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Resistance', 'MainParameters_Resistance', 0.030, 10000),
           )
         },
     ('LED', None): # This behaves like a Basic mode
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_LEDV', 'MainParameters_LEDV', 'V'),
-                     ('MainParametersLabel_LEDC', 'MainParameters_LEDC', 'C'),
-                     ('MainParametersLabel_LEDR', 'MainParameters_LEDR', 0.01, 1.0)),
+        {'widgets': None,
          'mode_name': 'LED',
          'params': (
-            ('IRANGE',  'r', 'Range_Current_.*'),
-            ('VRANGE',  'r', 'Range_Voltage_.*'),
-            ('VOLTAGE', 'f', 'MainParameters_LEDV'),
-            ('CURRENT', 'f', 'MainParameters_LEDC'),
-            ('RCONF',   'f', 'MainParameters_LEDR'),
+            ('IRANGE',    'r', None, 'Range_Current_.*'),
+            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
+            ('VOLTAGE', '.3f', 'MainParametersLabel_LEDV', 'MainParameters_LEDV', 0.010, 'V'),
+            ('CURRENT', '.3f', 'MainParametersLabel_LEDC', 'MainParameters_LEDC', 0, 'C'),
+            ('RCONF',   '.2f', 'MainParametersLabel_LEDR', 'MainParameters_LEDR', 0.01, 1),
           )
         },
     ('Battery', 'Current'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_BATTC', 'MainParameters_BATTC', 'C'),
-                     ('MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 'V'),
-                     ('MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
-                     ('MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400)),
+        {'widgets': None,
          'mode_name': 'BATTERY',
          'params': (
-            ('IRANGE',  'r', 'Range_Current_.*'),
-            ('VRANGE',  'r', 'Range_Voltage_.*'),
-            ('LEVEL',   'f', 'MainParameters_BATTC'),
-            ('VOLTAGE', 'f', 'MainParameters_BATTVSTOP'),
-            ('CAP',     'f', 'MainParameters_BATTCAPSTOP'),
-            ('TIMER',   'f', 'MainParameters_BATTTSTOP'),
+            ('IRANGE',    'r', None, 'Range_Current_.*'),
+            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
+            ('LEVEL',   '.3f', 'MainParametersLabel_BATTC', 'MainParameters_BATTC', 0, 'C'),
+            ('VOLTAGE', '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+            ('CAP',       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+            ('TIMER',     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
           )
         },
     ('Battery', 'Power'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_BATTP', 'MainParameters_BATTP', 'P'),
-                     ('MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 'V'),
-                     ('MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
-                     ('MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400)),
+        {'widgets': None,
          'mode_name': 'BATTERY',
          'params': (
-            ('IRANGE',  'r', 'Range_Current_.*'),
-            ('VRANGE',  'r', 'Range_Voltage_.*'),
-            ('LEVEL',   'f', 'MainParameters_BATTP'),
-            ('VOLTAGE', 'f', 'MainParameters_BATTVSTOP'),
-            ('CAP',     'f', 'MainParameters_BATTCAPSTOP'),
-            ('TIMER',   'f', 'MainParameters_BATTTSTOP'),
+            ('IRANGE',    'r', None, 'Range_Current_.*'),
+            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
+            ('LEVEL',   '.3f', 'MainParametersLabel_BATTP', 'MainParameters_BATTP', 0, 'P'),
+            ('VOLTAGE', '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+            ('CAP',       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+            ('TIMER',     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
           )
         },
     ('Battery', 'Resistance'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_BATTR', 'MainParameters_BATTR', 0, 10000),
-                     ('MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 'V'),
-                     ('MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
-                     ('MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400)),
+        {'widgets': None,
          'mode_name': 'BATTERY',
          'params': (
-            ('IRANGE',  'r', 'Range_Current_.*'),
-            ('VRANGE',  'r', 'Range_Voltage_.*'),
-            ('LEVEL',   'f', 'MainParameters_BATTR'),
-            ('VOLTAGE', 'f', 'MainParameters_BATTVSTOP'),
-            ('CAP',     'f', 'MainParameters_BATTCAPSTOP'),
-            ('TIMER',   'f', 'MainParameters_BATTTSTOP'),
+            ('IRANGE',    'r', None, 'Range_Current_.*'),
+            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
+            ('LEVEL',   '.3f', 'MainParametersLabel_BATTR', 'MainParameters_BATTR', 0.030, 10000),
+            ('VOLTAGE', '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+            ('CAP',       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+            ('TIMER',     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
           )
         },
-    ('Dynamic', 'Voltage'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 'V'),
-                     ('MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 'V'),
-                     ('MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
-                     ('MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999)),
+    ('Dynamic', 'Voltage', 'Continuous'):
+        {'widgets': None,
          'mode_name': 'VOLTAGE',
          'params': (
-            ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', 'f', 'MainParameters_ALevelV'),
-            ('TRANSIENT:BLEVEL', 'f', 'MainParameters_BLevelV'),
-            ('TRANSIENT:AWIDTH', 'f', 'MainParameters_AWidth'),
-            ('TRANSIENT:BWIDTH', 'f', 'MainParameters_BWidth'),
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 0, 'V'),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 0, 'V'),
+            ('TRANSIENT:AWIDTH', '.3f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
+            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999),
           )
         },
-    ('Dynamic', 'Current'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 'C'),
-                     ('MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 'C'),
-                     ('MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
-                     ('MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999),
-                     ('AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
-                     ('AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.5)),
+    ('Dynamic', 'Voltage', 'Pulse'):
+        {'widgets': None,
+         'mode_name': 'VOLTAGE',
+         'params': (
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 0, 'V'),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 0, 'V'),
+            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_Width',   'MainParameters_Width', 1, 999),
+          )
+        },
+    ('Dynamic', 'Voltage', 'Toggle'):
+        {'widgets': None,
+         'mode_name': 'VOLTAGE',
+         'params': (
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 0, 'V'),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 0, 'V'),
+          )
+        },
+    ('Dynamic', 'Current', 'Continuous'):
+        {'widgets': None,
          'mode_name': 'CURRENT',
          'params': (
-            ('TRANSIENT:IRANGE',        'r', 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',        'r', 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',          'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL',        'f', 'MainParameters_ALevelC'),
-            ('TRANSIENT:BLEVEL',        'f', 'MainParameters_BLevelC'),
-            ('TRANSIENT:AWIDTH',        'f', 'MainParameters_AWidth'),
-            ('TRANSIENT:BWIDTH',        'f', 'MainParameters_BWidth'),
-            ('TRANSIENT:SLEW:POSITIVE', 'f', 'AuxParameters_TSlewPos'),
-            ('TRANSIENT:SLEW:NEGATIVE', 'f', 'AuxParameters_TSlewNeg'),
+            ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',          'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
+            ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
+            ('TRANSIENT:AWIDTH',        '.6f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.000020, 999),
+            ('TRANSIENT:BWIDTH',        '.6f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.000020, 999),
+            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
+            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.05),
           )
         },
-    ('Dynamic', 'Power'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 'P'),
-                     ('MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 'P'),
-                     ('MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
-                     ('MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999)),
+    ('Dynamic', 'Current', 'Pulse'):
+        {'widgets': None,
+         'mode_name': 'CURRENT',
+         'params': (
+            ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',          'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
+            ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
+            ('TRANSIENT:BWIDTH',        '.6f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.000020, 999),
+            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
+            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.05),
+          )
+        },
+    ('Dynamic', 'Current', 'Toggle'):
+        {'widgets': None,
+         'mode_name': 'CURRENT',
+         'params': (
+            ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',          'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
+            ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
+            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
+            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.05),
+          )
+        },
+    ('Dynamic', 'Power', 'Continuous'):
+        {'widgets': None,
          'mode_name': 'POWER',
          'params': (
-            ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', 'f', 'MainParameters_ALevelP'),
-            ('TRANSIENT:BLEVEL', 'f', 'MainParameters_BLevelP'),
-            ('TRANSIENT:AWIDTH', 'f', 'MainParameters_AWidth'),
-            ('TRANSIENT:BWIDTH', 'f', 'MainParameters_BWidth'),
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 0, 'P'),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
+            ('TRANSIENT:AWIDTH', '.6f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.000040, 999),
+            ('TRANSIENT:BWIDTH', '.6f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.000040, 999),
           )
         },
-    ('Dynamic', 'Resistance'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.03, 10000),
-                     ('MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.03, 10000),
-                     ('MainParametersLabel_AWidth', 'MainParameters_AWidth', 1, 999),
-                     ('MainParametersLabel_BWidth', 'MainParameters_BWidth', 1, 999)),
+    ('Dynamic', 'Power', 'Pulse'):
+        {'widgets': None,
+         'mode_name': 'POWER',
+         'params': (
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 0, 'P'),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
+            ('TRANSIENT:BWIDTH', '.6f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.000040, 999),
+          )
+        },
+    ('Dynamic', 'Power', 'Toggle'):
+        {'widgets': None,
+         'mode_name': 'POWER',
+         'params': (
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 0, 'P'),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
+          )
+        },
+
+    ('Dynamic', 'Resistance', 'Continuous'):
+        {'widgets': None,
          'mode_name': 'RESISTANCE',
          'params': (
-            ('TRANSIENT:IRANGE', 'r', 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE', 'r', 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',   'r', 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', 'f', 'MainParameters_ALevelR'),
-            ('TRANSIENT:BLEVEL', 'f', 'MainParameters_BLevelR'),
-            ('TRANSIENT:AWIDTH', 'f', 'MainParameters_AWidth'),
-            ('TRANSIENT:BWIDTH', 'f', 'MainParameters_BWidth'),
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.030, 10000),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.030, 10000),
+            ('TRANSIENT:AWIDTH', '.3f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.001, 999),
+            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.001, 999),
+          )
+        },
+    ('Dynamic', 'Resistance', 'Pulse'):
+        {'widgets': None,
+         'mode_name': 'RESISTANCE',
+         'params': (
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.030, 10000),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.030, 10000),
+            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.001, 999),
+          )
+        },
+    ('Dynamic', 'Resistance', 'Toggle'):
+        {'widgets': None,
+         'mode_name': 'RESISTANCE',
+         'params': (
+            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
+            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
+            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
+            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.030, 10000),
+            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.030, 10000),
           )
         },
     ('OCPT', None):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_OCPV', 'MainParameters_OCPV', 'V'),
-                     ('MainParametersLabel_OCPSTART', 'MainParameters_OCPSTART', 'C'),
-                     ('MainParametersLabel_OCPEND', 'MainParameters_OCPEND', 'C'), # XXX 2 must be >= 1
-                     ('MainParametersLabel_OCPSTEP', 'MainParameters_OCPSTEP', 'C'),
-                     ('MainParametersLabel_OCPDELAY', 'MainParameters_OCPDELAY', 0.001, 999),
-                     ('AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 'C'),
-                     ('AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 'C')), # XXX 2 must be >= 1
+        {'widgets': None,
          'mode_name': 'OCP',
          'params': (
-            ('IRANGE',     'r', 'Range_Current_.*'),
-            ('VRANGE',     'r', 'Range_Voltage_.*'),
-            ('VOLTAGE',    'f', 'MainParameters_OCPV'),
-            ('START',      'f', 'MainParameters_OCPSTART'),
-            ('END',        'f', 'MainParameters_OCPEND'),
-            ('STEP',       'f', 'MainParameters_OCPSTEP'),
-            ('STEP:DELAY', 'f', 'MainParameters_OCPDELAY'),
-            ('MIN',        'f', 'AuxParameters_OCPMIN'),
-            ('MAX',        'f', 'AuxParameters_OCPMAX'),
+            ('IRANGE',       'r', None, 'Range_Current_.*'),
+            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+            ('VOLTAGE',    '.3f', 'MainParametersLabel_OCPV', 'MainParameters_OCPV', 0, 'V'),
+            ('START',      '.3f', 'MainParametersLabel_OCPSTART', 'MainParameters_OCPSTART', 0, 'C'), # END XXX
+            ('END',        '.3f', 'MainParametersLabel_OCPEND', 'MainParameters_OCPEND', 0, 'C'), # START XXX
+            ('STEP',       '.3f', 'MainParametersLabel_OCPSTEP', 'MainParameters_OCPSTEP', 0, 'C'),
+            ('STEP:DELAY', '.3f', 'MainParametersLabel_OCPDELAY', 'MainParameters_OCPDELAY', 0.001, 999),
+            ('MIN',        '.3f', 'AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 0, 'C'), # MAX XXX
+            ('MAX',        '.3f', 'AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 0, 'C'), # MIN XXX
           )
         },
     ('OPPT', None):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     ('MainParametersLabel_OPPV', 'MainParameters_OPPV', 'V'),
-                     ('MainParametersLabel_OPPSTART', 'MainParameters_OPPSTART', 'C'),
-                     ('MainParametersLabel_OPPEND', 'MainParameters_OPPEND', 'C'), # XXX 2 must be >= 1
-                     ('MainParametersLabel_OPPSTEP', 'MainParameters_OPPSTEP', 'C'),
-                     ('MainParametersLabel_OPPDELAY', 'MainParameters_OPPDELAY', 0.001, 999),
-                     ('AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 'C'),
-                     ('AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 'C')), # XXX 2 must be >= 1
+        {'widgets': None,
          'mode_name': 'OPP',
          'params': (
-            ('IRANGE',     'r', 'Range_Current_.*'),
-            ('VRANGE',     'r', 'Range_Voltage_.*'),
-            ('VOLTAGE',    'f', 'MainParameters_OPPV'),
-            ('START',      'f', 'MainParameters_OPPSTART'),
-            ('END',        'f', 'MainParameters_OPPEND'),
-            ('STEP',       'f', 'MainParameters_OPPSTEP'),
-            ('STEP:DELAY', 'f', 'MainParameters_OPPDELAY'),
-            ('MIN',        'f', 'AuxParameters_OPPMIN'),
-            ('MAX',        'f', 'AuxParameters_OPPMAX'),
+            ('IRANGE',       'r', None, 'Range_Current_.*'),
+            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+            ('VOLTAGE',    '.3f', 'MainParametersLabel_OPPV', 'MainParameters_OPPV', 0, 'V'),
+            ('START',      '.2f', 'MainParametersLabel_OPPSTART', 'MainParameters_OPPSTART', 0, 'P'), # END XXX
+            ('END',        '.2f', 'MainParametersLabel_OPPEND', 'MainParameters_OPPEND', 0, 'P'), # START XXX
+            ('STEP',       '.2f', 'MainParametersLabel_OPPSTEP', 'MainParameters_OPPSTEP', 0, 'P'),
+            ('STEP:DELAY', '.3f', 'MainParametersLabel_OPPDELAY', 'MainParameters_OPPDELAY', 0.001, 999),
+            ('MIN',        '.3f', 'AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 0, 'P'), # MAX XXX
+            ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 0, 'P'), # MIN XXX
           )
         },
 
@@ -327,13 +355,13 @@ _SDL_MODE_PARAMS = {
 class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     def __init__(self, *args, **kwargs):
         self._cur_overall_mode = None
-        self._cur_dynamic_mode = None
         self._cur_const_mode = None
         self._cur_dynamic_mode = None
         self._enable_measurement_v = True
         self._enable_measurement_c = True
         self._enable_measurement_p = True
         self._enable_measurement_r = True
+        self._disable_callbacks = False
         super().__init__(*args, **kwargs)
 
     ### Public methods
@@ -349,12 +377,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             for param_spec in info['params']:
                 param = f'{mode_name}:{param_spec[0]}'
                 val = self._inst.query(param+'?')
-                param_type = param_spec[1]
+                param_type = param_spec[1][-1]
                 if param_type == 'f': # Float
                     val = float(val)
                 elif param_type == 'b' or param_type == 'd': # Boolean or Decimal
-                    val = int(val)
-                elif param_type == 's' or param_type == 'r': # Strings
+                    val = int(float(val))
+                elif param_type == 's' or param_type == 'r': # String or radio button
                     val = val.title()
                 else:
                     assert False, 'Unknown param_type '+str(param_type)
@@ -377,7 +405,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             self._cur_const_mode = self._param_state[':FUNCTION']
         elif mode == 'Dynamic':
             self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
-            param_info = self._cur_mode_param_info()
+            param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
             mode_name = param_info['mode_name']
             val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
             self._cur_dynamic_mode = val
@@ -477,42 +505,29 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         return ''
 
     def _update_load_state(self, state):
-        new_params = {':INPUT:STATE': state}
-        self._update_params(new_params)
+        new_param_state = {':INPUT:STATE': state}
+        self._update_params(new_param_state)
         self._update_load_onoff_button(state)
         self._update_trigger_buttons()
 
     def _update_short_state(self, state):
-        new_params = {':SHORT:STATE': state}
-        self._update_params(new_params)
+        new_param_state = {':SHORT:STATE': state}
+        self._update_params(new_param_state)
         self._update_short_onoff_button(state)
 
-    def _update_widgets(self):
-        if self._cur_overall_mode is None:
-            return
-
-        param_info = self._cur_mode_param_info()
-        mode_name = param_info['mode_name']
-
-        for widget_name, widget in self._widget_registry.items():
-            # Set the main mode radio buttons
-            if widget_name.startswith('Overall_'):
-                widget.setChecked(widget_name.endswith(self._cur_overall_mode))
-            # Set the const mode radio buttons
-            if widget_name.startswith('Const_') and self._cur_const_mode is not None:
-                widget.setChecked(widget_name.endswith(self._cur_const_mode))
-
-        # Enable or disable widgets based on the current overall mode
-        for widget_name in _SDL_OVERALL_MODES[self._cur_overall_mode]:
-            if widget_name[0] == '~':
+    def _show_or_disable_widgets(self, widget_list):
+        for widget_re in widget_list:
+            if widget_re[0] == '~':
                 # Hide unused widgets
+                widget_re = widget_re[1:]
                 for trial_widget in self._widget_registry:
-                    if re.fullmatch(widget_name[1:], trial_widget):
+                    if re.fullmatch(widget_re, trial_widget):
                         self._widget_registry[trial_widget].hide()
-            elif widget_name[0] == '!':
+            elif widget_re[0] == '!':
                 # Disable (and grey out) unused widgets
+                widget_re = widget_re[1:]
                 for trial_widget in self._widget_registry:
-                    if re.fullmatch(widget_name[1:], trial_widget):
+                    if re.fullmatch(widget_re, trial_widget):
                         widget = self._widget_registry[trial_widget]
                         widget.setEnabled(False)
                         if isinstance(widget, QRadioButton):
@@ -522,90 +537,145 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                             widget.setChecked(False)
                             widget.button_group.setExclusive(True)
             else:
-                for trial_widget in self._widget_registry:
-                    if re.fullmatch(widget_name, trial_widget):
-                        self._widget_registry[trial_widget].setEnabled(True)
-                        self._widget_registry[trial_widget].show()
-
-        # Now do the same thing for the constant mode
-        for widget_name in param_info['widgets']:
-            min_val = max_val = None
-            widget_name2 = None
-            if isinstance(widget_name, (tuple, list)):
-                if len(widget_name) == 4:
-                    widget_name, widget_name2, min_val, max_val = widget_name
-                elif len(widget_name) == 3:
-                    widget_name, widget_name2, range_type = widget_name
-                    trans = self._transient_string()
-                    if range_type == 'C':
-                        min_val = 0
-                        max_val = float(self._param_state[f':{mode_name}{trans}:IRANGE'])
-                    elif range_type == 'V':
-                        min_val = 0
-                        max_val = float(self._param_state[f':{mode_name}{trans}:VRANGE'])
-                    elif range_type == 'P':
-                        min_val = 0
-                        if self._inst._high_power:
-                            max_val = 300
-                        else:
-                            max_val = 200
-                    else:
-                        assert False
-                else:
-                    assert False
-            if widget_name[0] == '~':
-                # Hide unused widgets
-                for trial_widget in self._widget_registry:
-                    if re.fullmatch(widget_name[1:], trial_widget):
-                        self._widget_registry[trial_widget].hide()
-            elif widget_name[0] == '!':
-                # Disable (and grey out) unused widgets
-                for trial_widget in self._widget_registry:
-                    if re.fullmatch(widget_name[1:], trial_widget):
-                        self._widget_registry[trial_widget].setEnabled(False)
-            else:
-                for trial_widget in self._widget_registry:
-                    if re.fullmatch(widget_name, trial_widget):
-                        self._widget_registry[trial_widget].setEnabled(True)
-                        self._widget_registry[trial_widget].show()
-                    if widget_name2 is not None:
-                        if re.fullmatch(widget_name2, trial_widget):
-                            widget = self._widget_registry[trial_widget]
-                            widget.setEnabled(True)
-                            widget.show()
-                            widget.setMinimum(min_val)
-                            widget.setMaximum(max_val)
-
-        # Fill in widget values
-        params = param_info['params']
-        mode_name = param_info['mode_name']
-        for scpi_cmd, param_type, widget_re in params:
-            val = self._param_state[f':{mode_name}:{scpi_cmd}']
-            if param_type == 'f' or param_type == 'd':
-                self._widget_registry[widget_re].setValue(val)
-            elif param_type == 'r': # Radio button
+                # Enable/show everything else
                 for trial_widget in self._widget_registry:
                     if re.fullmatch(widget_re, trial_widget):
-                        checked = trial_widget.upper().endswith('_'+str(val).upper())
-                        self._widget_registry[trial_widget].setChecked(checked)
+                        self._widget_registry[trial_widget].setEnabled(True)
+                        self._widget_registry[trial_widget].show()
+
+    def _update_widgets(self):
+        """Update all parameter widgets with the current _param_state values."""
+        if self._cur_overall_mode is None:
+            return
+
+        # We need to do this because various set* calls below trigger the callbacks,
+        # which then call this routine again in the middle of it already doing its
+        # work.
+        self._disable_callbacks = True
+
+        param_info = self._cur_mode_param_info()
+        mode_name = param_info['mode_name']
+
+        # We start by setting the proper radio button selections for the "Overall Mode"
+        # and the "Constant Mode" groups
+        for widget_name, widget in self._widget_registry.items():
+            if widget_name.startswith('Overall_'):
+                widget.setChecked(widget_name.endswith(self._cur_overall_mode))
+            if self._cur_const_mode is not None and widget_name.startswith('Const_'):
+                widget.setChecked(widget_name.endswith(self._cur_const_mode))
+
+        # First we go through the widgets for the Dynamic sub-modes and the Constant
+        # Modes and enable or disable them as appropriate based on the Overall Mode.
+        self._show_or_disable_widgets(_SDL_OVERALL_MODES[self._cur_overall_mode])
+
+        # Now we enable or disable widgets by first scanning through the "General"
+        # widget list and then the widget list specific to this overall mode (if any).
+        self._show_or_disable_widgets(_SDL_MODE_PARAMS['General']['widgets'])
+        if param_info['widgets'] is not None:
+            self._show_or_disable_widgets(param_info['widgets'])
+
+        # Now we go through the details for each parameter and fill in the widget
+        # value and set the widget parameters, as appropriate.
+        params = param_info['params']
+        mode_name = param_info['mode_name']
+        new_param_state = {}
+        for scpi_cmd, param_full_type, *rest in params:
+            param_type = param_full_type[-1]
+
+            # Parse out the label and main widget REs and the min/max values
+            match len(rest):
+                case 2:
+                    # Just a label and main widget, no value range
+                    widget_label, widget_main = rest
+                case 4:
+                    # A label and main widget with min/max value
+                    widget_label, widget_main, min_val, max_val = rest
+                    trans = self._transient_string()
+                    if min_val in ('C', 'V', 'P'):
+                        min_val = 0
+                    match max_val:
+                        case 'C': # Based on current range selection (5A, 30A)
+                            max_val = self._param_state[f':{mode_name}{trans}:IRANGE']
+                            max_val = float(max_val)
+                        case 'V': # Based on voltage range selection (36V, 150V)
+                            max_val = self._param_state[f':{mode_name}{trans}:VRANGE']
+                            max_val = float(max_val)
+                        case 'P': # Based on SDL model - SDL1020 is 200W, SDL1030 is 300W
+                            if self._inst._high_power:
+                                max_val = 300
+                            else:
+                                max_val = 200
+                case _:
+                    assert False, f'Unknown widget parameters {rest}'
+
+            if widget_label is not None:
+                self._widget_registry[widget_label].show()
+                self._widget_registry[widget_label].setEnabled(True)
+
+            val = self._param_state[f':{mode_name}:{scpi_cmd}']
+
+            if param_type == 'd' or param_type == 'f':
+                widget = self._widget_registry[widget_main]
+                widget.setEnabled(True)
+                widget.show()
+                widget.setMaximum(max_val)
+                widget.setMinimum(min_val)
+
+            match param_type:
+                case 'd': # Decimal
+                    widget.setDecimals(0)
+                    widget.setValue(val)
+                    # It's possible that setting the minimum or maximum caused the value
+                    # to change, which means we need to update our state.
+                    if val != int(float(widget.value())):
+                        new_param_state[f':{mode_name}:{scpi_cmd}'] = float(widget.value())
+                case 'f': # Floating point
+                    assert param_full_type[0] == '.'
+                    widget.setDecimals(int(param_full_type[1:-1]))
+                    widget.setValue(val)
+                    # It's possible that setting the minimum or maximum caused the value
+                    # to change, which means we need to update our state.
+                    if val != float(widget.value()):
+                        new_param_state[f':{mode_name}:{scpi_cmd}'] = float(widget.value())
+                case 'r': # Radio button
+                    # In this case only the widget_main is an RE
+                    for trial_widget in self._widget_registry:
+                        if re.fullmatch(widget_main, trial_widget):
+                            checked = trial_widget.upper().endswith('_'+str(val).upper())
+                            self._widget_registry[trial_widget].setChecked(checked)
+                case _:
+                    assert False, f'Unknown param type {param_type}'
+
+        self._update_params(new_param_state)
 
         # Update the buttons
         self._update_load_onoff_button()
         self._update_short_onoff_button()
         self._update_trigger_buttons()
 
-    def _cur_mode_param_info(self):
-        key = (self._cur_overall_mode, self._cur_const_mode)
+        self._disable_callbacks = False
+
+    def _cur_mode_param_info(self, null_dynamic_mode_ok=False):
+        if self._cur_overall_mode == 'Dynamic':
+            if null_dynamic_mode_ok and self._cur_dynamic_mode is None:
+                # We fake this here for refresh(), where we don't know the dynamic
+                # mode until we know we're in the dynamic mode itself...catch 22
+                key = (self._cur_overall_mode, self._cur_const_mode, 'Continuous')
+            else:
+                key = (self._cur_overall_mode, self._cur_const_mode,
+                       self._cur_dynamic_mode)
+        else:
+            key = (self._cur_overall_mode, self._cur_const_mode)
         return _SDL_MODE_PARAMS[key]
 
-    def _update_params(self, new_params):
+    def _update_params(self, new_param_state):
         # print('Old')
         # print(pprint.pformat(self._param_state))
         # print()
         # print('New')
-        # print(pprint.pformat(new_params))
+        # print(pprint.pformat(new_param_state))
         # print()
-        for key, data in new_params.items():
+        for key, data in new_param_state.items():
             if data != self._param_state[key]:
                 fmt_data = data
                 if isinstance(data, bool):
@@ -788,16 +858,17 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     ('B Level', 'BLevelR', '\u2126', 'TRANSIENT:BLEVEL'),
                     ('A Width', 'AWidth', 's', 'TRANSIENT:AWIDTH'),
                     ('B Width', 'BWidth', 's', 'TRANSIENT:BWIDTH'),
+                    ('Width', 'Width', 's', 'TRANSIENT:BWIDTH'),
                     ('Vo', 'LEDV', 'V', 'VOLTAGE'),
                     ('Io', 'LEDC', 'A', 'CURRENT'),
-                    ('Rco', 'LEDR', '\u2126', 'RCONF'),
+                    ('Rco', 'LEDR', None, 'RCONF'),
                     ('Current', 'BATTC', 'A', 'LEVEL'),
                     ('Power', 'BATTP', 'W', 'LEVEL'),
                     ('Resistance', 'BATTR', '\u2126', 'LEVEL'),
                     ('V Stop', 'BATTVSTOP', 'V', 'VOLTAGE'),
                     ('Cap Stop', 'BATTCAPSTOP', 'mAh', 'CAP'),
                     ('Time Stop', 'BATTTSTOP', 's', 'TIMER'),
-                    ('Prot V', 'OCPV', 'V', 'VOLTAGE'),
+                    ('Von', 'OCPV', 'V', 'VOLTAGE'),
                     ('I Start', 'OCPSTART', 'A', 'START'),
                     ('I End', 'OCPEND', 'A', 'END'),
                     ('I Step', 'OCPSTEP', 'A', 'STEP'),
@@ -989,7 +1060,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             input.setDecimals(3)
             input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
             input.setAccelerated(True)
-            input.setSuffix(' '+unit)
+            if unit is not None:
+                input.setSuffix(' '+unit)
             input.editingFinished.connect(self._on_value_change)
             layouth.addWidget(input)
             label.sizePolicy().setRetainSizeWhenHidden(True)
@@ -1024,17 +1096,19 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             self._widget_row_measurements.hide()
 
     def _on_click_overall_mode(self):
+        if self._disable_callbacks:
+            return
         rb = self.sender()
         if not rb.isChecked():
             return
         self._cur_overall_mode = rb.wid
         self._cur_dynamic_mode = None
-        new_params = {}
+        new_param_state = {}
         match self._cur_overall_mode:
             case 'Basic':
                 if self._cur_const_mode is None:
                     self._cur_const_mode = self._param_state[':FUNCTION']
-                    if self._cur_const_mode == 'LED':
+                    if self._cur_const_mode == 'Led':
                         # LED is weird in that the instrument treats it as a BASIC mode
                         # but there's no CV/CC/CP/CR choice
                         self._cur_const_mode = 'Voltage' # For lack of anything else to do
@@ -1045,23 +1119,23 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION'] = None
-                new_params[':FUNCTION'] = self._cur_const_mode
+                new_param_state[':FUNCTION'] = self._cur_const_mode
             case 'Dynamic':
                 if self._cur_const_mode is None:
                     self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
-                param_info = self._cur_mode_param_info()
+                param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
                 mode_name = param_info['mode_name']
                 val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
                 self._cur_dynamic_mode = val
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION:TRANSIENT'] = None
-                new_params[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+                new_param_state[':FUNCTION:TRANSIENT'] = self._cur_const_mode
             case 'LED':
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION'] = None
-                new_params[':FUNCTION'] = 'LED'
+                new_param_state[':FUNCTION'] = 'Led'
                 self._cur_const_mode = None
             case 'Battery':
                 # This is not a parameter with a state - it's just a command to switch
@@ -1090,10 +1164,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._update_load_state(0)
         self._update_short_state(0)
 
-        self._update_params(new_params)
+        self._update_params(new_param_state)
         self._update_widgets()
 
     def _on_click_dynamic_mode(self):
+        if self._disable_callbacks:
+            return
         rb = self.sender()
         if not rb.isChecked():
             return
@@ -1107,33 +1183,40 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
-        new_params = {':FUNCTION:TRANSIENT': self._cur_const_mode,
-                      f':{mode_name}:TRANSIENT:MODE': rb.wid}
+        new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode,
+                           f':{mode_name}:TRANSIENT:MODE': rb.wid}
 
-        self._update_params(new_params)
+        self._update_params(new_param_state)
         self._update_widgets()
 
     def _on_click_const_mode(self):
+        if self._disable_callbacks:
+            return
         rb = self.sender()
         if not rb.isChecked():
             return
         self._cur_const_mode = rb.wid
         if self._cur_overall_mode == 'Basic':
-            new_params = {':FUNCTION': self._cur_const_mode}
+            new_param_state = {':FUNCTION': self._cur_const_mode}
         elif self._cur_overall_mode == 'Dynamic':
-            new_params = {':FUNCTION:TRANSIENT': self._cur_const_mode}
+            new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode}
+            info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
+            mode_name = info['mode_name']
+            self._cur_dynamic_mode = self._param_state[f':{mode_name}:TRANSIENT:MODE']
         elif self._cur_overall_mode == 'Battery':
-            new_params = {':BATTERY:MODE': self._cur_const_mode}
+            new_param_state = {':BATTERY:MODE': self._cur_const_mode}
 
         # Changing the mode turns off the load and short
         # We have to do this manually in order for the later mode change to take effect
         self._update_load_state(0)
         self._update_short_state(0)
 
-        self._update_params(new_params)
+        self._update_params(new_param_state)
         self._update_widgets()
 
     def _on_click_range(self):
+        if self._disable_callbacks:
+            return
         rb = self.sender()
         if not rb.isChecked():
             return
@@ -1142,23 +1225,27 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         val = rb.wid
         trans = self._transient_string()
         if val.endswith('V'):
-            new_params = {f':{mode_name}{trans}:VRANGE': val.strip('V')}
+            new_param_state = {f':{mode_name}{trans}:VRANGE': val.strip('V')}
         else:
-            new_params = {f':{mode_name}{trans}:IRANGE': val.strip('A')}
-        self._update_params(new_params)
+            new_param_state = {f':{mode_name}{trans}:IRANGE': val.strip('A')}
+        self._update_params(new_param_state)
         self._update_widgets()
 
     def _on_value_change(self):
+        if self._disable_callbacks:
+            return
         input = self.sender()
         mode, scpi = input.wid
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
         val = float(input.value())
-        new_params = {f':{mode_name}:{scpi}': val}
-        self._update_params(new_params)
+        new_param_state = {f':{mode_name}:{scpi}': val}
+        self._update_params(new_param_state)
         self._update_widgets()
 
     def _on_click_short_enable(self):
+        if self._disable_callbacks:
+            return
         cb = self.sender()
         if cb.isChecked():
             self._widget_registry['ShortONOFF'].setEnabled(True)
@@ -1167,27 +1254,37 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             self._widget_registry['ShortONOFF'].setEnabled(False)
 
     def _on_click_short_on_off(self):
+        if self._disable_callbacks:
+            return
         bt = self.sender()
         state = 1-self._param_state[':SHORT:STATE']
         self._update_short_state(state)
 
     def _on_click_load_on_off(self):
+        if self._disable_callbacks:
+            return
         bt = self.sender()
         state = 1-self._param_state[':INPUT:STATE']
         self._update_load_state(state)
 
     def _on_click_trigger_source(self):
+        if self._disable_callbacks:
+            return
         rb = self.sender()
         if not rb.isChecked():
             return
-        new_params = {':TRIGGER:SOURCE': rb.mode}
-        self._update_params(new_params)
+        new_param_state = {':TRIGGER:SOURCE': rb.mode}
+        self._update_params(new_param_state)
         self._update_trigger_buttons()
 
     def _on_click_trigger(self):
+        if self._disable_callbacks:
+            return
         self._inst.trg()
 
     def _on_click_enable_measurements(self):
+        if self._disable_callbacks:
+            return
         cb = self.sender()
         match cb.mode:
             case 'V':
