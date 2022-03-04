@@ -1,3 +1,12 @@
+- Current status:
+  - Short should be disabled for battery, OCP, OPP. Right now it is disabled but this is
+    screwing up the Short Enable setting
+  - Battery should notice the load turning off and acknowledge end of battery test
+  - Record load start and end time, final time, final mAh
+  - Figure out some way to display battery CAP ADD
+
+  
+
 ** PyInstaller **
 
 pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6

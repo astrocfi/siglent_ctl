@@ -66,7 +66,9 @@ _SDL_OVERALL_MODES = {
 _SDL_MODE_PARAMS = {
     ('General'):
         {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*'),
+                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
+                     '!ShortONOFF',
+                     '~MeasureBattTime', '~MeasureBattCap'),
          'mode_name': None,
          'params': (
             # SYST:REMOTE:STATE is undocumented! It locks the keyboard and
@@ -84,7 +86,7 @@ _SDL_MODE_PARAMS = {
          )
         },
     ('Basic', 'Voltage'):
-        {'widgets':  None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'VOLTAGE',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -93,7 +95,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Current'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'CURRENT',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -104,7 +106,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Power'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'POWER',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -113,7 +115,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Resistance'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'RESISTANCE',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -122,7 +124,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('LED', None): # This behaves like a Basic mode
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'LED',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -133,7 +135,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Battery', 'Current'):
-        {'widgets': None,
+        {'widgets': ('MeasureBattTime', 'MeasureBattCap'),
          'mode_name': 'BATTERY',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -145,7 +147,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Battery', 'Power'):
-        {'widgets': None,
+        {'widgets': ('MeasureBattTime', 'MeasureBattCap'),
          'mode_name': 'BATTERY',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -157,7 +159,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Battery', 'Resistance'):
-        {'widgets': None,
+        {'widgets': ('MeasureBattTime', 'MeasureBattCap'),
          'mode_name': 'BATTERY',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -169,7 +171,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage', 'Continuous'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -182,7 +184,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage', 'Pulse'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -194,7 +196,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage', 'Toggle'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -205,7 +207,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Current', 'Continuous'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'CURRENT',
          'params': (
             ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
@@ -220,7 +222,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Current', 'Pulse'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'CURRENT',
          'params': (
             ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
@@ -234,7 +236,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Current', 'Toggle'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'CURRENT',
          'params': (
             ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
@@ -247,7 +249,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Power', 'Continuous'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -260,7 +262,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Power', 'Pulse'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -272,7 +274,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Power', 'Toggle'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -284,7 +286,7 @@ _SDL_MODE_PARAMS = {
         },
 
     ('Dynamic', 'Resistance', 'Continuous'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -297,7 +299,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Resistance', 'Pulse'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -309,7 +311,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Resistance', 'Toggle'):
-        {'widgets': None,
+        {'widgets': ('ShortONOFF',),
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -349,7 +351,6 @@ _SDL_MODE_PARAMS = {
             ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 0, 'P'), # MIN XXX
           )
         },
-
 }
 
 class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
@@ -431,6 +432,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         if self._enable_measurement_r:
             ret.append({'name': 'Resistance',
                         'units': '\u2126'})
+        if self._cur_overall_mode == 'Battery':
+            ret.append({'name': 'Discharge Time',
+                        'units': 's'})
+            ret.append({'name': 'Capacity',
+                        'units': 'mAh'})
         return ret
 
     def update_measurements(self):
@@ -489,6 +495,18 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 w.setText(f'{fmt} \u2126' % resistance)
         else:
             w.setText('---   \u2126')
+
+        if self._cur_overall_mode == 'Battery':
+            disch_time = self._inst.measure_battery_time()
+            m, s = divmod(disch_time, 60)
+            h, m = divmod(m, 60)
+            w = self._widget_registry['MeasureBattTime']
+            w.setText('%02d:%02d:%02d' % (h, m, s))
+
+            w = self._widget_registry['MeasureBattCap']
+            disch_cap = self._inst.measure_battery_capacity()
+            w.setText('%d mAh' % disch_cap)
+
 
     ### Override from ConfigureWidgetBase
 
@@ -1013,13 +1031,17 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.addStretch()
 
         container = QWidget()
-        container.setStyleSheet('background: black; color: yellow;')
+        container.setStyleSheet('background: black;')
         row_layout.addStretch()
         row_layout.addWidget(container)
 
         ss = """font-size: 30px; font-weight: bold;
                 min-width: 6.5em; text-align: right;
-                font-family: "Courier New";
+                font-family: "Courier New"; color: yellow;
+             """
+        ss2 = """font-size: 30px; font-weight: bold;
+                min-width: 6.5em; text-align: right;
+                font-family: "Courier New"; color: red;
              """
         layout = QGridLayout(container)
         w = QLabel('---   V')
@@ -1042,6 +1064,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         w.setStyleSheet(ss)
         layout.addWidget(w, 1, 1)
         self._widget_registry['MeasureR'] = w
+        w = QLabel('00:00:00')
+        w.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        w.setStyleSheet(ss2)
+        layout.addWidget(w, 2, 0)
+        self._widget_registry['MeasureBattTime'] = w
+        w = QLabel('---  mAh')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss2)
+        layout.addWidget(w, 2, 1)
+        self._widget_registry['MeasureBattCap'] = w
 
         row_layout.addStretch()
 
@@ -1400,6 +1432,12 @@ class InstrumentSiglentSDL1000(Device4882):
 
     def measure_resistance(self):
         return float(self.query('MEAS:RES?'))
+
+    def measure_battery_time(self):
+        return float(self.query(':BATTERY:DISCHA:TIMER?'))
+
+    def measure_battery_capacity(self):
+        return float(self.query(':BATTERY:DISCHA:CAP?'))
 
     def measure_vcpr(self):
         return (self.measure_voltage(),
