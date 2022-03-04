@@ -26,6 +26,7 @@
 ################################################################################
 
 import pprint
+import time
 import re
 
 from PyQt6.QtWidgets import (QWidget,
@@ -67,8 +68,7 @@ _SDL_MODE_PARAMS = {
     ('General'):
         {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
                      '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     '!ShortONOFF',
-                     '~MeasureBattTime', '~MeasureBattCap'),
+                     '~MeasureBatt.*', '~ClearAddCap'),
          'mode_name': None,
          'params': (
             # SYST:REMOTE:STATE is undocumented! It locks the keyboard and
@@ -86,7 +86,7 @@ _SDL_MODE_PARAMS = {
          )
         },
     ('Basic', 'Voltage'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'VOLTAGE',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -95,7 +95,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Current'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'CURRENT',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -106,7 +106,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Power'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'POWER',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -115,7 +115,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Basic', 'Resistance'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'RESISTANCE',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -124,7 +124,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('LED', None): # This behaves like a Basic mode
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'LED',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -135,7 +135,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Battery', 'Current'):
-        {'widgets': ('MeasureBattTime', 'MeasureBattCap'),
+        {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
          'mode_name': 'BATTERY',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -147,7 +147,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Battery', 'Power'):
-        {'widgets': ('MeasureBattTime', 'MeasureBattCap'),
+        {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
          'mode_name': 'BATTERY',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -159,7 +159,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Battery', 'Resistance'):
-        {'widgets': ('MeasureBattTime', 'MeasureBattCap'),
+        {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
          'mode_name': 'BATTERY',
          'params': (
             ('IRANGE',    'r', None, 'Range_Current_.*'),
@@ -171,7 +171,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage', 'Continuous'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -184,7 +184,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage', 'Pulse'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -196,7 +196,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Voltage', 'Toggle'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'VOLTAGE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -207,7 +207,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Current', 'Continuous'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'CURRENT',
          'params': (
             ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
@@ -222,7 +222,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Current', 'Pulse'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'CURRENT',
          'params': (
             ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
@@ -236,7 +236,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Current', 'Toggle'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'CURRENT',
          'params': (
             ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
@@ -249,7 +249,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Power', 'Continuous'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -262,7 +262,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Power', 'Pulse'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -274,7 +274,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Power', 'Toggle'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'POWER',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -286,7 +286,7 @@ _SDL_MODE_PARAMS = {
         },
 
     ('Dynamic', 'Resistance', 'Continuous'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -299,7 +299,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Resistance', 'Pulse'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -311,7 +311,7 @@ _SDL_MODE_PARAMS = {
           )
         },
     ('Dynamic', 'Resistance', 'Toggle'):
-        {'widgets': ('ShortONOFF',),
+        {'widgets': None,
          'mode_name': 'RESISTANCE',
          'params': (
             ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
@@ -363,12 +363,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._enable_measurement_p = True
         self._enable_measurement_r = True
         self._disable_callbacks = False
+        self._load_on_time = None
+        self._load_off_time = None
+        self._reset_batt_log()
         super().__init__(*args, **kwargs)
 
     ### Public methods
 
     def refresh(self):
         """Read all parameters from the instrument and set our internal state to match."""
+        self._param_state = {}
         for mode, info in _SDL_MODE_PARAMS.items():
             mode_name = info['mode_name']
             if mode_name is None: # General parameters
@@ -377,6 +381,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 mode_name = ':'+mode_name
             for param_spec in info['params']:
                 param = f'{mode_name}:{param_spec[0]}'
+                if param in self._param_state:
+                    # Sub-modes often ask for the same data, no need to retrieve it twice
+                    continue
                 val = self._inst.query(param+'?')
                 param_type = param_spec[1][-1]
                 if param_type == 'f': # Float
@@ -437,6 +444,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                         'units': 's'})
             ret.append({'name': 'Capacity',
                         'units': 'mAh'})
+            ret.append({'name': 'Addl Capacity',
+                        'units': 'mAh'})
+            ret.append({'name': 'Total Capacity',
+                        'units': 'mAh'})
         return ret
 
     def update_measurements(self):
@@ -444,7 +455,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         # Update the load on/off state in case we hit a protection limit
         input_state = int(self._inst.query(':INPUT:STATE?'))
         if self._param_state[':INPUT:STATE'] != input_state:
-            self._param_state[':INPUT:STATE'] = input_state
             self._update_load_state(input_state)
 
         w = self._widget_registry['MeasureV']
@@ -497,6 +507,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             w.setText('---   \u2126')
 
         if self._cur_overall_mode == 'Battery':
+            if self._batt_log_initial_voltage is None:
+                self._batt_log_initial_voltage = voltage
             disch_time = self._inst.measure_battery_time()
             m, s = divmod(disch_time, 60)
             h, m = divmod(m, 60)
@@ -507,6 +519,18 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             disch_cap = self._inst.measure_battery_capacity()
             w.setText('%d mAh' % disch_cap)
 
+            w = self._widget_registry['MeasureBattAddCap']
+            add_cap = self._inst.measure_battery_add_capacity()
+            w.setText('Addl Cap: %6d mAh' % add_cap)
+
+            # When the LOAD is OFF, we have already updated the ADDCAP to include the
+            # current test results, so we don't want to add it in a second time
+            if input_state:
+                val = disch_cap+add_cap
+            else:
+                val = add_cap
+            w = self._widget_registry['MeasureBattTotalCap']
+            w.setText('Total Cap: %6d mAh' % val)
 
     ### Override from ConfigureWidgetBase
 
@@ -523,7 +547,56 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         return ''
 
     def _update_load_state(self, state):
+        old_state = self._param_state[':INPUT:STATE']
         new_param_state = {':INPUT:STATE': state}
+
+        if state != old_state:
+            if state:
+                self._load_on_time = time.time()
+                self._batt_log_initial_voltage = None
+            else:
+                self._load_off_time = time.time()
+
+            if not state and self._cur_overall_mode == 'Battery':
+                # For some reason when using Battery mode remotely, when the test is
+                # complete (or aborted), the ADDCAP field is not automatically updated like
+                # it is when you run a test from the front panel. So we do the computation
+                # and update it here.
+                disch_cap = self._inst.measure_battery_capacity()
+                add_cap = self._inst.measure_battery_add_capacity()
+                self._inst.write(f':BATT:ADDCAP {disch_cap + add_cap}')
+                # Update the battery log entries
+                if self._load_on_time is not None and self._load_off_time is not None:
+                    match self._cur_const_mode:
+                        case 'Current':
+                            batt_mode = 'CC %.3fA' % self._param_state[':BATTERY:LEVEL']
+                        case 'Power':
+                            batt_mode = 'CP %.3fW' % self._param_state[':BATTERY:LEVEL']
+                        case 'Resistance':
+                            batt_mode = 'CR %.3f\u2126' % self._param_state[
+                                                                        ':BATTERY:LEVEL']
+                    self._batt_log_modes.append(batt_mode)
+                    stop_cond = ''
+                    stop_cond += 'Vmin %.3fV' % self._param_state[':BATTERY:VOLTAGE']
+                    if stop_cond != '':
+                        stop_cond += ' or '
+                    stop_cond += 'Cap %.3fAh' % (self._param_state[':BATTERY:CAP']/1000)
+                    if stop_cond != '':
+                        stop_cond += ' or '
+                    stop_cond += 'Time '+self._time_to_hms(
+                                            int(self._param_state[':BATTERY:TIMER']))
+                    if stop_cond == '':
+                        self._batt_log_stop_cond.append('None')
+                    else:
+                        self._batt_log_stop_cond.append(stop_cond)
+                    self._batt_log_initial_voltages.append(self._batt_log_initial_voltage)
+                    self._batt_log_start_times.append(self._load_on_time)
+                    self._batt_log_end_times.append(self._load_off_time)
+                    self._batt_log_run_times.append(self._load_off_time -
+                                                    self._load_on_time)
+                    self._batt_log_caps.append(disch_cap)
+                    print(self._batt_log_report())
+
         self._update_params(new_param_state)
         self._update_load_onoff_button(state)
         self._update_trigger_buttons()
@@ -709,6 +782,61 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     fmt_data = data.upper()
                 self._inst.write(f'{key} {fmt_data}')
                 self._param_state[key] = data
+
+    def _reset_batt_log(self):
+        self._batt_log_modes = []
+        self._batt_log_stop_cond = []
+        self._batt_log_start_times = []
+        self._batt_log_end_times = []
+        self._batt_log_run_times = []
+        self._batt_log_initial_voltage = None
+        self._batt_log_initial_voltages = []
+        self._batt_log_caps = []
+
+    @staticmethod
+    def _time_to_str(t):
+        return time.strftime('%Y %b %d %H:%M:%S', time.localtime(t))
+
+    @staticmethod
+    def _time_to_hms(t):
+        m, s = divmod(t, 60)
+        h, m = divmod(m, 60)
+        return '%d:%02d:%02d' % (h, m, s)
+
+    def _batt_log_report(self):
+        n_entries = len(self._batt_log_start_times)
+        if n_entries == 0:
+            return None
+        single = (n_entries == 1)
+        ret = f'Test device: {self._inst.manufacturer} {self._inst.model}\n'
+        ret += f'S/N: {self._inst.serial_number}\n'
+        ret += f'Firmware: {self._inst.firmware_version}\n'
+        if not single:
+            ret += '** Overall test **\n'
+        ret += 'Start time: '+self._time_to_str(self._batt_log_start_times[0])+'\n'
+        ret += 'End time: '+self._time_to_str(self._batt_log_end_times[-1])+'\n'
+        t = self._batt_log_end_times[-1]-self._batt_log_start_times[0]
+        ret += 'Elapsed time: '+self._time_to_hms(t)+'\n'
+        if not single:
+            t = sum(self._batt_log_run_times)
+            ret += 'Test time: '+self._time_to_hms(t)+'\n'
+        if single:
+            ret += 'Test mode: '+self._batt_log_modes[0]+'\n'
+            ret += 'Stop condition: '+self._batt_log_stop_cond[0]+'\n'
+            ret += 'Initial voltage: %.3fV\n'%self._batt_log_initial_voltages[0]
+        cap = sum(self._batt_log_caps)
+        ret += 'Capacity: %.3fAh\n' % (cap/1000)
+        if not single:
+            for i in range(n_entries):
+                ret += '** Test segment #%d **\n' % (i+1)
+                ret += 'Start time: '+self._time_to_str(self._batt_log_start_times[i])+'\n'
+                ret += 'End time: '+self._time_to_str(self._batt_log_end_times[i])+'\n'
+                ret += 'Test time: '+self._time_to_hms(self._batt_log_run_times[i])+'\n'
+                ret += 'Test mode: '+self._batt_log_modes[i]+'\n'
+                ret += 'Stop condition: '+self._batt_log_stop_cond[i]+'\n'
+                ret += 'Initial voltage: %.3f\n'%self._batt_log_initial_voltages[i]
+                ret += 'Capacity: %.3fAh\n' % (self._batt_log_caps[i]/1000)
+        return ret
 
 
     ############################################################################
@@ -930,6 +1058,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         w.setChecked(False)
         w.clicked.connect(self._on_click_short_enable)
         layouth.addWidget(w)
+        self._widget_registry['ShortONOFFEnable'] = w
         self._update_short_onoff_button(False) # Sets the style sheet
         layouth.addStretch()
 
@@ -1027,6 +1156,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         layoutv.addWidget(cb)
         self._widget_registry['Enable_R'] = cb
         layoutv.addStretch()
+        pb = QPushButton('Reset Addl Cap && Test Log')
+        pb.clicked.connect(self._on_click_reset_batt_test)
+        layoutv.addWidget(pb)
+        self._widget_registry['ClearAddCap'] = pb
+        layoutv.addStretch()
 
         row_layout.addStretch()
 
@@ -1035,13 +1169,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.addStretch()
         row_layout.addWidget(container)
 
-        ss = """font-size: 30px; font-weight: bold;
-                min-width: 6.5em; text-align: right;
-                font-family: "Courier New"; color: yellow;
+        ss = """font-size: 30px; font-weight: bold; font-family: "Courier New";
+                min-width: 6.5em; color: yellow;
              """
-        ss2 = """font-size: 30px; font-weight: bold;
-                min-width: 6.5em; text-align: right;
-                font-family: "Courier New"; color: red;
+        ss2 = """font-size: 30px; font-weight: bold; font-family: "Courier New";
+                min-width: 6.5em; color: red;
+             """
+        ss3 = """font-size: 15px; font-weight: bold; font-family: "Courier New";
+                min-width: 6.5em; color: red;
              """
         layout = QGridLayout(container)
         w = QLabel('---   V')
@@ -1065,7 +1200,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         layout.addWidget(w, 1, 1)
         self._widget_registry['MeasureR'] = w
         w = QLabel('00:00:00')
-        w.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
         w.setStyleSheet(ss2)
         layout.addWidget(w, 2, 0)
         self._widget_registry['MeasureBattTime'] = w
@@ -1074,7 +1209,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         w.setStyleSheet(ss2)
         layout.addWidget(w, 2, 1)
         self._widget_registry['MeasureBattCap'] = w
-
+        w = QLabel('Addl Cap:    --- mAh')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss3)
+        layout.addWidget(w, 3, 0)
+        self._widget_registry['MeasureBattAddCap'] = w
+        w = QLabel('Total Cap:    --- mAh')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss3)
+        layout.addWidget(w, 3, 1)
+        self._widget_registry['MeasureBattTotalCap'] = w
         row_layout.addStretch()
 
     def _init_widgets_value_box(self, title, details):
@@ -1278,12 +1422,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     def _on_click_short_enable(self):
         if self._disable_callbacks:
             return
+        self._update_short_onoff_button(None)
         cb = self.sender()
-        if cb.isChecked():
-            self._widget_registry['ShortONOFF'].setEnabled(True)
+        if not cb.isChecked():
+            self._update_short_onoff_button(None)
         else:
-            self._update_short_state(0)
-            self._widget_registry['ShortONOFF'].setEnabled(False)
+            self._update_short_state(0) # Also updates the button
 
     def _on_click_short_on_off(self):
         if self._disable_callbacks:
@@ -1328,15 +1472,25 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             case 'R':
                 self._enable_measurement_r = cb.isChecked()
 
+    def _on_click_reset_batt_test(self):
+        self._inst.write(':BATT:ADDCAP 0')
+        self._reset_batt_log()
+
     def _update_load_onoff_button(self, state=None):
         if state is None:
             state = self._param_state[':INPUT:STATE']
         bt = self._widget_registry['LoadONOFF']
         if state:
-            bt.setText('LOAD IS ON')
+            if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+                bt.setText('STOP TEST')
+            else:
+                bt.setText('LOAD IS ON')
             bg_color = '#ffc0c0'
         else:
-            bt.setText('LOAD IS OFF')
+            if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+                bt.setText('START TEST')
+            else:
+                bt.setText('LOAD IS OFF')
             bg_color = '#c0ffb0'
         ss = f"""QPushButton {{
                     background-color: {bg_color};
@@ -1366,6 +1520,15 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                  QPushButton::pressed {{ border: 4px solid black; }}
               """
         bt.setStyleSheet(ss)
+        if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+            self._widget_registry['ShortONOFFEnable'].setEnabled(False)
+            self._widget_registry['ShortONOFF'].setEnabled(False)
+        elif self._widget_registry['ShortONOFFEnable'].isChecked():
+            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
+            self._widget_registry['ShortONOFF'].setEnabled(True)
+        else:
+            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
+            self._widget_registry['ShortONOFF'].setEnabled(False)
 
     def _update_trigger_buttons(self):
         src = self._param_state[':TRIGGER:SOURCE']
@@ -1434,10 +1597,13 @@ class InstrumentSiglentSDL1000(Device4882):
         return float(self.query('MEAS:RES?'))
 
     def measure_battery_time(self):
-        return float(self.query(':BATTERY:DISCHA:TIMER?'))
+        return float(self.query(':BATT:DISCHA:TIMER?'))
 
     def measure_battery_capacity(self):
-        return float(self.query(':BATTERY:DISCHA:CAP?'))
+        return float(self.query(':BATT:DISCHA:CAP?'))
+
+    def measure_battery_add_capacity(self):
+        return float(self.query(':BATT:ADDCAP?'))
 
     def measure_vcpr(self):
         return (self.measure_voltage(),

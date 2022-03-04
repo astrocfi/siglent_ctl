@@ -42,6 +42,22 @@ class Device(object):
         self._firmware_version = None
         self._debug = False
 
+    @property
+    def manufacturer(self):
+        return self._manufacturer
+
+    @property
+    def model(self):
+        return self._model
+
+    @property
+    def serial_number(self):
+        return self._serial_number
+
+    @property
+    def firmware_version(self):
+        return self._firmware_version
+        
     def set_debug(self, val):
         self._debug = val
 
