@@ -78,7 +78,7 @@ class ConfigureWidgetBase(QWidget):
         action = QAction('&Load...', self)
         action.triggered.connect(self._menu_do_load_configuration)
         self._menubar_configure.addAction(action)
-        action = QAction('&Save...', self)
+        action = QAction('&Save As...', self)
         action.triggered.connect(self._menu_do_save_configuration)
         self._menubar_configure.addAction(action)
         action = QAction('Reset device to &default', self)

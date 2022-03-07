@@ -57,7 +57,7 @@ class Device(object):
     @property
     def firmware_version(self):
         return self._firmware_version
-        
+
     def set_debug(self, val):
         self._debug = val
 
@@ -74,6 +74,7 @@ class Device(object):
         self._connected = True
         if self._debug:
             print(f'Connected to {self._resource_name}')
+
 
     ### Direct access to pyvisa functions
 
@@ -128,10 +129,13 @@ class Device(object):
             print(f'read_raw "{s}" returned "{ret}"')
         return ret
 
-    def write(self, s):
-        """VISA write, appending termination characters."""
+    def write(self, s, timeout=None):
+        """VISA write, appending termination characters. Timeout override is in ms."""
         if not self._connected:
             raise NotConnectedError
+        old_timeout = self._resource.timeout
+        if timeout is not None:
+            self._resource.timeout = timeout
         if self._debug:
             print(f'write "{s}"')
         try:
@@ -139,6 +143,7 @@ class Device(object):
         except pyvisa.errors.VisaIOError:
             self.disconnect()
             raise ContactLostError
+        self._resource.timeout = old_timeout
 
     def write_raw(self, s):
         """VISA write, no termination characters."""
