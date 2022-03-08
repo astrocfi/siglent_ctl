@@ -3,7 +3,8 @@
 #
 # This file is part of the siglent_ctl software suite.
 #
-# It contains all code related to the Siglent SDL1000 series:
+# It contains all code related to the Siglent SDL1000 series of programmable
+# DC electronic loads:
 #   - SDL1020X
 #   - SDL1020X-E
 #   - SDL1030X
@@ -25,23 +26,48 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
-# The behavior of :FUNCTION and :FUNCTION:MODE is confusing. Here are the details.
+################################################################################
+# This module contains two basic sections. The GUI for the control widget is
+# specified by the InstrumentSiglentSDL1000ConfigureWidget class. The internal
+# instrument driver is specified by the InstrumentSiglentSDL1000 class.
+#
+# Some general notes:
+#
+# ** SIGLENT SCPI DOCUMENTATION
+#
+# There are errors and omissions in the "Siglent Programming Guide: SDL1000X
+# Programmable DC Electronic Load" document (PG0801X-C01A dated 2019). In particular
+# there are two SCPI commands that we need that are undocumented:
+#
+# - SYST:REMOTE:STATE locks the instrument keyboard and shows the remote control
+#   icon.
+# - :FUNCTION:MODE[?] which is described below
+#
+# Figuring out what mode the instrument is in and setting it to a new mode is
+# a confusing mismash of operations. Here are the details.
 #
 # :FUNCTION:MODE? is an undocumented SCPI command that is ONLY useful for queries. You
-#   cannot use it to set the mode!
-#       It returns one of: BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
+#   cannot use it to set the mode! It returns one of:
+#       BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
 #   Note that LED is considered a BASIC mode.
 #
-# :FUNCTION <mode> is used to set the "constant" mode while in the BASIC mode. If the
+# :FUNCTION <X> is used to set the "constant X" mode while in the BASIC mode. If the
 #   instrument is not currently in the BASIC mode, this places it in the BASIC mode.
 #   There is no way to go into the BASIC mode without also specifying the "constant"
-#   mode. LED mode is considered a BASIC mode, so to put the instrument in LED mode,
-#   execute
+#   mode. Examples:
+#       :FUNCTION VOLTAGE
+#       :FUNCTION CURRENT
+#       :FUNCTION POWER
+#       :FUNCTION RESISTANCE
+#   LED mode is considered a BASIC mode, so to put the instrument in LED mode,
+#   execute:
 #       :FUNCTION LED
+#   It can also be used to query the current "constant X" mode:
+#       :FUNCTION?
 #
-# :FUNCTION:TRANSIENT <mode> does the same thing as :FUNCTION but for the TRANSIENT
-#   (Dynamic) mode. It can both query the current "constant" mode and put the instrument
-#   into the Dynamic mode.
+# :FUNCTION:TRANSIENT <X> does the same thing as :FUNCTION but for the TRANSIENT
+#   (Dynamic) mode. It can both query the current "constant X" mode and put the
+#   instrument into the Dynamic mode.
 #
 # To place the instrument in other modes, you use specific commands:
 #   :BATTERY:FUNC
@@ -49,12 +75,13 @@
 #   :OPP:FUNC
 #   :LIST:STATE:ON
 #   :PROGRAM:STATE:ON
+################################################################################
 
 
 import json
 import pprint
-import time
 import re
+import time
 
 from PyQt6.QtWidgets import (QWidget,
                              QAbstractSpinBox,
@@ -77,10 +104,22 @@ from PyQt6.QtWidgets import (QWidget,
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
 
-from .device import Device4882, ContactLostError
+from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
 
 
+# Widget names referenced below are stored in the self._widget_registry dictionary.
+# Widget descriptors can generally be anything permitted by a standard Python
+# regular expression.
+
+# This dictionary maps from the "overall" mode (shown in the left radio button group)
+# to the set of widgets that should be shown or hidden.
+#   !   means hide
+#   ~   means set as not enabled (greyed out)
+#       No prefix means show and enable
+# Basically, the Dynamic modes (continuous, pulse, trigger) are only available in
+# Dynamic mode, and the Constant X modes are only available in Basic, Dynamic,
+# Battery (except CV), and List modes.
 _SDL_OVERALL_MODES = {
     'Basic':   ('!Dynamic_Mode_.*', 'Const_.*',),
     'Dynamic': ('Dynamic_Mode_.*',  'Const_.*',),
@@ -92,6 +131,35 @@ _SDL_OVERALL_MODES = {
     'OPPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
 }
 
+# This dictionary maps from the current overall mode (see above) and the current
+# "Constant X" mode (if any, None otherwise) to a description of what to do
+# in this combination.
+#   'widgets'       The list of widgets to show/hide/grey out/enable.
+#                   See above for the syntax.
+#   'mode_name'     The string to place at the beginning of a SCPI command.
+#   'params'        A list of parameters active in this mode. Each entry is
+#                   constructed as follows:
+#       0) The SCPI base command. The 'mode_name', if any, will be prepended to give,
+#          e.g. ":VOLTAGE:IRANGE"
+#       1) The type of the parameter. Options are '.Xf' for a float with a given
+#          number of decimal places, 'd' for an integer, 'b' for a Boolean
+#          (treated the same as 'd' for now), 's' for an arbitrary string,
+#          and 'r' for a radio button.
+#       2) A widget name telling which container widgets to enable (e.g.
+#          the "*Label" boxes around the entry spinners).
+#       3) A widget name telling which widget contains the actual value to read
+#          or set. It is automatically enabled. For a 'r' radio button, this is
+#          a regular expression describing a radio button group. All are set to
+#          unchecked except for the appropriate selected one which is set to
+#          checked.
+#       4) For numerical widgets ('d' and 'f'), the minimum allowed value.
+#       5) For numerical widgets ('d' and 'f'), the maximum allowed value.
+#           For 4 and 5, the min/max can be a constant number of a special
+#           character. 'C' means the limits of the CURRENT RANGE. 'V' means the
+#           limits of the VOLTAGE RANGE. 'P' means the limits of power based
+#           on the SDL model number (200W or 300W).
+# The "General" entry is a little special, since it doesn't pertain to a particular
+# mode combination. It is used as an addon to all other modes.
 _SDL_MODE_PARAMS = {
     ('General'):
         {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
@@ -383,81 +451,70 @@ _SDL_MODE_PARAMS = {
         },
 }
 
+
+# This class encapsulates the main SDL configuration widget.
+
 class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     def __init__(self, *args, **kwargs):
-        self._cur_overall_mode = None
-        self._cur_const_mode = None
-        self._cur_dynamic_mode = None
+        # The current state of all SCPI parameters. String values are always stored
+        # in upper case!
+        self._param_state = {}
+
+        self._cur_overall_mode = None # e.g. Basic, Dynamic, LED
+        self._cur_const_mode = None   # e.g. Voltage, Current, Power, Resistance
+        self._cur_dynamic_mode = None # e.g. Continuous, Pulse, Toggle
+
+        # Used to enable or disable measurement of parameters to speed up
+        # data acquisition.
         self._enable_measurement_v = True
         self._enable_measurement_c = True
         self._enable_measurement_p = True
         self._enable_measurement_r = True
+
+        # Needed to prevent recursive calls when setting a widget's value invokes
+        # the callback handler for it.
         self._disable_callbacks = False
+
+        # The time the LOAD was turned on and off. Used for battery discharge logging.
         self._load_on_time = None
         self._load_off_time = None
         self._reset_batt_log()
+
+        # We need to call this last because some things called by __init__ rely
+        # on the above variables being initialized.
         super().__init__(*args, **kwargs)
 
-    ### Public methods
 
+    ######################
+    ### Public methods ###
+    ######################
+
+    # This reads instrument -> _param_state
     def refresh(self):
         """Read all parameters from the instrument and set our internal state to match."""
-        self._param_state = {}
+        self._param_state = {} # Start with a blank slate
         for mode, info in _SDL_MODE_PARAMS.items():
-            mode_name = info['mode_name']
-            if mode_name is None: # General parameters
-                mode_name = ''
-            else:
-                mode_name = ':'+mode_name
             for param_spec in info['params']:
-                param = f'{mode_name}:{param_spec[0]}'
+                param = self._scpi_cmd_from_param_info(info, param_spec)
                 if param in self._param_state:
                     # Sub-modes often ask for the same data, no need to retrieve it twice
                     continue
-                val = self._inst.query(param+'?')
+                val = self._inst.query(f'{param}?')
                 param_type = param_spec[1][-1]
-                if param_type == 'f': # Float
-                    val = float(val)
-                elif param_type == 'b' or param_type == 'd': # Boolean or Decimal
-                    val = int(float(val))
-                elif param_type == 's' or param_type == 'r': # String or radio button
-                    val = val.title()
-                else:
-                    assert False, 'Unknown param_type '+str(param_type)
+                match param_type:
+                    case 'f': # Float
+                        val = float(val)
+                    case 'b' | 'd': # Boolean or Decimal
+                        val = int(float(val))
+                    case 's' | 'r': # String or radio button
+                        val = val.upper()
+                    case _:
+                        assert False, f'Unknown param_type {param_type}'
                 self._param_state[param] = val
-
+        # Set things like _cur_overall_mode and _cur_const_mode and update widgets
         self._update_state_from_param_state()
 
-    def _update_state_from_param_state(self):
-        """Update all internal state and widgets based on the current _param_state."""
-        mode = self._param_state[':FUNCTION:MODE']
-        if mode == 'Ocp':
-            mode = 'OCPT'
-        elif mode == 'Opp':
-            mode = 'OPPT'
-        elif mode == 'Basic' and self._param_state[':FUNCTION'] == 'Led':
-            mode = 'LED'
-        elif mode == 'Tran':
-            mode = 'Dynamic'
-        else:
-            mode = mode.title()
-        self._cur_overall_mode = mode
-        self._cur_dynamic_mode = None
-        if mode == 'Basic':
-            self._cur_const_mode = self._param_state[':FUNCTION']
-        elif mode == 'Dynamic':
-            self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
-            param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
-            mode_name = param_info['mode_name']
-            val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
-            self._cur_dynamic_mode = val
-        elif mode == 'Battery':
-            self._cur_const_mode = self._param_state[':BATTERY:MODE']
-        else:
-            self._cur_const_mode = None
-
-        self._update_widgets()
-
+    # This writes _param_state -> instrument (opposite of refresh)
     def update_instrument(self):
         """Update the instrument with the current _param_state.
 
@@ -465,40 +522,24 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         command to the SDL for a mode it's not currently in, it crashes!"""
         set_params = set()
         for mode, info in _SDL_MODE_PARAMS.items():
-            mode_name = info['mode_name']
-            if mode_name is None: # General parameters
-                mode_name = ''
-            else:
-                mode_name = ':'+mode_name
-
             first_write = True
             for param_spec in info['params']:
                 if not param_spec[2]:
                     continue # This captures the General True/False flag
-                param = f'{mode_name}:{param_spec[0]}'
+                param = self._scpi_cmd_from_param_info(info, param_spec)
                 if param in set_params:
                     # Sub-modes often ask for the same data, no need to retrieve it twice
                     continue
-
-                if first_write and mode_name:
-                    first_write = False
-                    # We have to put the instrument in the correct mode before setting the
-                    # parameters
-                    if mode[0] == 'Dynamic':
-                        self._inst.write(f':FUNCTION:TRANSIENT {mode[1]}')
-                    elif mode[0] == 'Basic':
-                        self._inst.write(f':FUNCTION {mode[1]}')
-                    elif mode[0] == 'Battery':
-                        self._inst.write(':FUNCTION BATTERY')
-                        self._inst.write(f':BATTERY:MODE {mode[1]}')
-                    else:
-                        self._inst.write(f':FUNCTION {mode[0]}')
-
                 set_params.add(param)
+                if first_write and info['mode_name']:
+                    first_write = False
+                    # We have to put the instrument in the correct mode before setting
+                    # the parameters. Not necessary for "General" (mode_name None).
+                    self._put_inst_in_mode(mode[0], mode[1])
                 val = self._param_state[param]
-                self._update_one_param(param, val)
-
+                self._update_one_param_on_inst(param, val)
         self._update_state_from_param_state()
+        self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
     def measurement_details(self):
         """Return metadata about the available measurements."""
@@ -531,41 +572,52 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         # Update the load on/off state in case we hit a protection limit
         input_state = int(self._inst.query(':INPUT:STATE?'))
         if self._param_state[':INPUT:STATE'] != input_state:
-            self._update_load_state(input_state)
+            # No need to update the instrument, since it changed the state for us
+            self._update_load_state(input_state, update_inst=False)
+
+        measurements = {}
 
         w = self._widget_registry['MeasureV']
         if self._enable_measurement_v:
+            # Voltage is available regardless of the input state
             voltage = self._inst.measure_voltage()
+            measurements['Voltage'] = voltage
             w.setText('%10.6f V' % voltage)
         else:
             w.setText('---   V')
 
         w = self._widget_registry['MeasureC']
         if self._enable_measurement_c:
+            # Current is only available when the load is on
             if not input_state:
                 w.setText('N/A   A')
             else:
                 current = self._inst.measure_current()
+                measurements['Current'] = current
                 w.setText('%10.6f A' % current)
         else:
             w.setText('---   A')
 
         w = self._widget_registry['MeasureP']
         if self._enable_measurement_p:
+            # Power is only available when the load is on
             if not input_state:
                 w.setText('N/A   W')
             else:
                 power = self._inst.measure_power()
+                measurements['Power'] = power
                 w.setText('%10.6f W' % power)
         else:
             w.setText('---   W')
 
         w = self._widget_registry['MeasureR']
         if self._enable_measurement_r:
+            # Resistance is only available when the load is on
             if not input_state:
                 w.setText('N/A   \u2126')
             else:
                 resistance = self._inst.measure_resistance()
+                measurements['Resistance'] = resistance
                 if resistance < 10:
                     fmt = '%8.6f'
                 elif resistance < 100:
@@ -583,9 +635,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             w.setText('---   \u2126')
 
         if self._cur_overall_mode == 'Battery':
+            # Battery measurements are available regardless of load state
             if self._batt_log_initial_voltage is None:
                 self._batt_log_initial_voltage = voltage
             disch_time = self._inst.measure_battery_time()
+            measurements['Discharge Time'] = disch_time
             m, s = divmod(disch_time, 60)
             h, m = divmod(m, 60)
             w = self._widget_registry['MeasureBattTime']
@@ -593,10 +647,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
             w = self._widget_registry['MeasureBattCap']
             disch_cap = self._inst.measure_battery_capacity()
+            measurements['Capacity'] = disch_cap
             w.setText('%d mAh' % disch_cap)
 
             w = self._widget_registry['MeasureBattAddCap']
             add_cap = self._inst.measure_battery_add_capacity()
+            measurements['Addl Capacity'] = add_cap
             w.setText('Addl Cap: %6d mAh' % add_cap)
 
             # When the LOAD is OFF, we have already updated the ADDCAP to include the
@@ -605,17 +661,25 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 val = disch_cap+add_cap
             else:
                 val = add_cap
+            measurements['Total Capacity'] = val
             w = self._widget_registry['MeasureBattTotalCap']
             w.setText('Total Cap: %6d mAh' % val)
 
+        return measurements
 
-    ### Override from ConfigureWidgetBase
+
+    #########################################
+    ### Override from ConfigureWidgetBase ###
+    #########################################
 
     def _menu_do_about(self):
-        msg = 'Siglent SDL1000-series\n\nBy Robert S. French'
+        """Show the About box."""
+        msg = """Siglent SDL1000-series configuration widget.\n\n
+Copyright 2022, Robert S. French"""
         QMessageBox.about(self, 'About', msg)
 
     def _menu_do_save_configuration(self):
+        """Save the current configuration to a file."""
         fn = QFileDialog.getSaveFileName(self, caption='Save Configuration',
                                          filter='All (*.*);;Configuration (*.scfg)',
                                          initialFilter='Configuration (*.scfg)')
@@ -626,6 +690,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             json.dump(self._param_state, fp, sort_keys=True, indent=4)
 
     def _menu_do_load_configuration(self):
+        """Load the current configuration from a file."""
         fn = QFileDialog.getOpenFileName(self, caption='Load Configuration',
                                          filter='All (*.*);;Configuration (*.scfg)',
                                          initialFilter='Configuration (*.scfg)')
@@ -640,11 +705,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._param_state['INPUT:STATE'] = 0
         self._update_short_state(0)
         self._param_state['SHORT:STATE'] = 0
-        print('Incoming :FUNCTION', self._param_state[':FUNCTION'])
-        print('Incoming :FUNCTION:MODE', self._param_state[':FUNCTION:MODE'])
         self.update_instrument()
 
     def _menu_do_reset_device(self):
+        """Reset the instrument and then reload the state."""
         # A reset takes around 6.75 seconds, so we wait up to 10s to be safe.
         self.setEnabled(False)
         self.repaint()
@@ -653,18 +717,95 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self.setEnabled(True)
 
 
-    ### Internal routines
+    ################################
+    ### Internal helper routines ###
+    ################################
 
     def _transient_string(self):
+        """Return the SCPI substring corresponding to the Dynamic mode, if applicable."""
         if self._cur_overall_mode == 'Dynamic':
             return ':TRANSIENT'
         return ''
 
-    def _update_load_state(self, state):
+    def _scpi_cmd_from_param_info(self, param_info, param_spec):
+        """Create a SCPI command from a param_info structure."""
+        mode_name = param_info['mode_name']
+        if mode_name is None: # General parameters
+            mode_name = ''
+        else:
+            mode_name = f':{mode_name}'
+        return f'{mode_name}:{param_spec[0]}'
+
+    def _put_inst_in_mode(self, overall_mode, const_mode):
+        """Place the SDL in the given overall mode (and const mode)."""
+        overall_mode = overall_mode.upper()
+        if const_mode is not None:
+            const_mode = const_mode.upper()
+        match overall_mode:
+            case 'DYNAMIC':
+                self._inst.write(f':FUNCTION:TRANSIENT {const_mode}')
+            case 'BASIC':
+                self._inst.write(f':FUNCTION {const_mode}')
+            case 'BATTERY':
+                self._inst.write(':FUNCTION BATTERY')
+                self._inst.write(f':BATTERY:MODE {const_mode}')
+            case _:
+                self._inst.write(f':FUNCTION {overall_mode}')
+
+    def _update_state_from_param_state(self):
+        """Update all internal state and widgets based on the current _param_state."""
+        mode = self._param_state[':FUNCTION:MODE']
+        # Convert the title-case SDL-specific name to the name we use in the GUI
+        match mode:
+            case 'BASIC':
+                if self._param_state[':FUNCTION'] == 'LED':
+                    mode = 'LED'
+            case 'TRAN':
+                mode = 'Dynamic'
+            case 'OCP':
+                mode = 'OCPT'
+            case 'OPP':
+                mode = 'OPPT'
+            # Other cases are already correct
+        if mode not in ('LED', 'OCPT', 'OPPT'):
+            mode = mode.title()
+        assert mode in ('Basic', 'LED', 'Battery', 'OCPT', 'OPPT', 'Dynamic',
+                        'Program', 'List')
+        self._cur_overall_mode = mode
+
+        # Initialize the dynamic and const mode as appropriate
+        self._cur_dynamic_mode = None
+        self._cur_const_mode = None
+        match mode:
+            case 'Basic':
+                self._cur_const_mode = self._param_state[':FUNCTION'].title()
+                assert self._cur_const_mode in (
+                    'Voltage', 'Current', 'Power', 'Resistance'), self._cur_const_mode
+            case 'Dynamic':
+                self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT'].title()
+                assert self._cur_const_mode in (
+                    'Voltage', 'Current', 'Power', 'Resistance'), self._cur_const_mode
+                param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
+                mode_name = param_info['mode_name']
+                self._cur_dynamic_mode = (
+                    self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
+                assert self._cur_dynamic_mode in (
+                    'Continuous', 'Pulse', 'Toggle'), self._cur_dynamic_mode
+            case 'Battery':
+                self._cur_const_mode = self._param_state[':BATTERY:MODE'].title()
+                assert self._cur_const_mode in (
+                    'Current', 'Power', 'Resistance'), self._cur_const_mode
+
+        # Now update all the widgets and their values with the new info
+        self._update_widgets()
+
+    def _update_load_state(self, state, update_inst=True):
+        """Update the load on/off internal state, possibly updating the instrument."""
         old_state = self._param_state[':INPUT:STATE']
         new_param_state = {':INPUT:STATE': state}
 
         if state != old_state:
+            # When turning on/off the load, record the details for the battery log
             if state:
                 self._load_on_time = time.time()
                 self._batt_log_initial_voltage = None
@@ -673,9 +814,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
             if not state and self._cur_overall_mode == 'Battery':
                 # For some reason when using Battery mode remotely, when the test is
-                # complete (or aborted), the ADDCAP field is not automatically updated like
-                # it is when you run a test from the front panel. So we do the computation
-                # and update it here.
+                # complete (or aborted), the ADDCAP field is not automatically updated
+                # like it is when you run a test from the front panel. So we do the
+                # computation and update it here.
                 disch_cap = self._inst.measure_battery_capacity()
                 add_cap = self._inst.measure_battery_add_capacity()
                 self._inst.write(f':BATT:ADDCAP {disch_cap + add_cap}')
@@ -709,15 +850,15 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     self._batt_log_run_times.append(self._load_off_time -
                                                     self._load_on_time)
                     self._batt_log_caps.append(disch_cap)
-                    print(self._batt_log_report())
 
-        self._update_params(new_param_state)
+        if update_inst:
+            self._update_param_state_and_inst(new_param_state)
         self._update_load_onoff_button(state)
         self._update_trigger_buttons()
 
     def _update_short_state(self, state):
         new_param_state = {':SHORT:STATE': state}
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
         self._update_short_onoff_button(state)
 
     def _show_or_disable_widgets(self, widget_list):
@@ -851,7 +992,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 case _:
                     assert False, f'Unknown param type {param_type}'
 
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
 
         # Update the buttons
         self._update_load_onoff_button()
@@ -873,7 +1014,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             key = (self._cur_overall_mode, self._cur_const_mode)
         return _SDL_MODE_PARAMS[key]
 
-    def _update_params(self, new_param_state):
+    def _update_param_state_and_inst(self, new_param_state):
         # print('Old')
         # print(pprint.pformat(self._param_state))
         # print()
@@ -882,10 +1023,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         # print()
         for key, data in new_param_state.items():
             if data != self._param_state[key]:
-                self._update_one_param(key, data)
+                self._update_one_param_on_inst(key, data)
                 self._param_state[key] = data
 
-    def _update_one_param(self, key, data):
+    def _update_one_param_on_inst(self, key, data):
         fmt_data = data
         if isinstance(data, bool):
             fmt_data = '1' if True else '0'
@@ -965,7 +1106,13 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     def _init_widgets(self):
         toplevel_widget = self._toplevel_widget()
 
-        ### Update menubar
+        ### Add to Device menu
+
+        action = QAction('Show &battery report...', self)
+        action.triggered.connect(self._menu_do_device_batt_report)
+        self._menubar_device.addAction(action)
+
+        ### Add to View menu
 
         action = QAction('&Parameters', self, checkable=True)
         action.setChecked(True)
@@ -1372,6 +1519,13 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     ### ACTION HANDLERS
     ############################################################################
 
+    def _menu_do_device_batt_report(self):
+        report = self._batt_log_report()
+        if report is None:
+            report = 'No current battery log.'
+        print(report)
+        self._printable_text_dialog('Battery Discharge Report', report)
+
     def _menu_do_view_parameters(self, state):
         if state:
             self._widget_row_parameters.show()
@@ -1402,7 +1556,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         match self._cur_overall_mode:
             case 'Basic':
                 if self._cur_const_mode is None:
-                    self._cur_const_mode = self._param_state[':FUNCTION']
+                    self._cur_const_mode = self._param_state[':FUNCTION'].title()
                     if self._cur_const_mode == 'Led':
                         # LED is weird in that the instrument treats it as a BASIC mode
                         # but there's no CV/CC/CP/CR choice
@@ -1414,44 +1568,48 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION'] = None
-                new_param_state[':FUNCTION'] = self._cur_const_mode
+                new_param_state[':FUNCTION'] = self._cur_const_mode.upper()
+                self._param_state[':FUNCTION:MODE'] = 'BASIC'
             case 'Dynamic':
                 if self._cur_const_mode is None:
-                    self._cur_const_mode = self._param_state[':FUNCTION:TRANSIENT']
+                    self._cur_const_mode = (
+                            self._param_state[':FUNCTION:TRANSIENT'].title())
                 param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
                 mode_name = param_info['mode_name']
-                val = self._param_state[f':{mode_name}:TRANSIENT:MODE']
-                self._cur_dynamic_mode = val
+                self._cur_dynamic_mode = (
+                            self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION:TRANSIENT'] = None
-                new_param_state[':FUNCTION:TRANSIENT'] = self._cur_const_mode
+                new_param_state[':FUNCTION:TRANSIENT'] = self._cur_const_mode.upper()
+                self._param_state[':FUNCTION:MODE'] = 'TRAN'
             case 'LED':
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION'] = None
-                new_param_state[':FUNCTION'] = 'Led'
+                new_param_state[':FUNCTION'] = 'LED'
+                self._param_state[':FUNCTION:MODE'] = 'BASIC'
                 self._cur_const_mode = None
             case 'Battery':
                 # This is not a parameter with a state - it's just a command to switch
                 # modes. The normal :FUNCTION tells us we're in the Battery mode, but it
                 # doesn't allow us to SWITCH TO the OCP mode!
                 self._inst.write(':BATTERY:FUNC')
-                self._param_state[':FUNCTION'] = 'Battery'
-                self._cur_const_mode = self._param_state[':BATTERY:MODE']
+                self._param_state[':FUNCTION:MODE'] = 'BATTERY'
+                self._cur_const_mode = self._param_state[':BATTERY:MODE'].title()
             case 'OCPT':
                 # This is not a parameter with a state - it's just a command to switch
                 # modes. The normal :FUNCTION tells us we're in OCP mode, but it
                 # doesn't allow us to SWITCH TO the OCP mode!
                 self._inst.write(':OCP:FUNC')
-                self._param_state[':FUNCTION'] = 'OCP'
+                self._param_state[':FUNCTION:MODE'] = 'OCP'
                 self._cur_const_mode = None
             case 'OPPT':
                 # This is not a parameter with a state - it's just a command to switch
                 # modes. The normal :FUNCTION tells us we're in OPP mode, but it
                 # doesn't allow us to SWITCH TO the OCP mode!
                 self._inst.write(':OPP:FUNC')
-                self._param_state[':FUNCTION'] = 'OPP'
+                self._param_state[':FUNCTION:MODE'] = 'OPP'
                 self._cur_const_mode = None
 
         # Changing the mode turns off the load and short
@@ -1459,7 +1617,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._update_load_state(0)
         self._update_short_state(0)
 
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
     def _on_click_dynamic_mode(self):
@@ -1478,10 +1636,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
-        new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode,
-                           f':{mode_name}:TRANSIENT:MODE': rb.wid}
+        new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper(),
+                           f':{mode_name}:TRANSIENT:MODE': rb.wid.upper()}
 
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
     def _on_click_const_mode(self):
@@ -1492,12 +1650,13 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             return
         self._cur_const_mode = rb.wid
         if self._cur_overall_mode == 'Basic':
-            new_param_state = {':FUNCTION': self._cur_const_mode}
+            new_param_state = {':FUNCTION': self._cur_const_mode.upper()}
         elif self._cur_overall_mode == 'Dynamic':
-            new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode}
+            new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper()}
             info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
             mode_name = info['mode_name']
-            self._cur_dynamic_mode = self._param_state[f':{mode_name}:TRANSIENT:MODE']
+            self._cur_dynamic_mode = (
+                        self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
         elif self._cur_overall_mode == 'Battery':
             new_param_state = {':BATTERY:MODE': self._cur_const_mode}
 
@@ -1506,7 +1665,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._update_load_state(0)
         self._update_short_state(0)
 
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
     def _on_click_range(self):
@@ -1523,7 +1682,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             new_param_state = {f':{mode_name}{trans}:VRANGE': val.strip('V')}
         else:
             new_param_state = {f':{mode_name}{trans}:IRANGE': val.strip('A')}
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
     def _on_value_change(self):
@@ -1535,7 +1694,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         mode_name = info['mode_name']
         val = float(input.value())
         new_param_state = {f':{mode_name}:{scpi}': val}
-        self._update_params(new_param_state)
+        self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
     def _on_click_short_enable(self):
@@ -1568,8 +1727,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         rb = self.sender()
         if not rb.isChecked():
             return
-        new_param_state = {':TRIGGER:SOURCE': rb.mode}
-        self._update_params(new_param_state)
+        new_param_state = {':TRIGGER:SOURCE': rb.mode.upper()}
+        self._update_param_state_and_inst(new_param_state)
         self._update_trigger_buttons()
 
     def _on_click_trigger(self):
@@ -1651,9 +1810,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
     def _update_trigger_buttons(self):
         src = self._param_state[':TRIGGER:SOURCE']
-        self._widget_registry['Trigger_Bus'].setChecked(src == 'Bus')
-        self._widget_registry['Trigger_Man'].setChecked(src == 'Manual')
-        self._widget_registry['Trigger_Ext'].setChecked(src == 'External')
+        self._widget_registry['Trigger_Bus'].setChecked(src == 'BUS')
+        self._widget_registry['Trigger_Man'].setChecked(src == 'MANUAL')
+        self._widget_registry['Trigger_Ext'].setChecked(src == 'EXTERNAL')
 
         enabled = False
         if (self._cur_overall_mode == 'Dynamic' and

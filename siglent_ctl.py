@@ -38,7 +38,8 @@ from data_stream import DataStream
 import device
 
 def update():
-    config_widget.update_measurements()
+    measurements = config_widget.update_measurements()
+    print(measurements)
     # stream_v.record_value(inst.measure_voltage())
     # stream_i.record_value(inst.measure_current())
     # # stream_p.record_value(inst.measure_power())

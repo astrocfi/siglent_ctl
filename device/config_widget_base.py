@@ -39,7 +39,8 @@ from PyQt6.QtWidgets import (QWidget,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
-                             QVBoxLayout)
+                             QVBoxLayout,
+                             QPlainTextEdit)
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import *
 
@@ -85,6 +86,8 @@ class ConfigureWidgetBase(QWidget):
         action.triggered.connect(self._menu_do_reset_device)
         self._menubar_configure.addAction(action)
 
+        self._menubar_device = self._menubar.addMenu('&Device')
+
         self._menubar_view = self._menubar.addMenu('&View')
 
         self._menubar_help = self._menubar.addMenu('&Help')
@@ -115,3 +118,13 @@ class ConfigureWidgetBase(QWidget):
 
     def _menu_do_about(self):
         raise NotImplementedError
+
+    def _printable_text_dialog(self, title, contents):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        layoutv = QVBoxLayout()
+        dialog.setLayout(layoutv)
+        text = QPlainTextEdit()
+        layoutv.addWidget(text)
+        text.setPlainText(contents)
+        dialog.exec()
