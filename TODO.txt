@@ -2,6 +2,8 @@
 
 - Cleanup
 
+- Print/save battery report
+- Rename "Bus" trigger to manual?
 
 ** PyInstaller **
 
@@ -19,6 +21,7 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 ** SDL1000 **
 
 - Slew pos/neg have to be in the same "range" 0.001-0.01 or 0.01-0.5
+- Min/max fields need to stay in the proper order
 - Implement Batt mode
   - Add checkboxes next to V/C/T STOP to enable state and grey out box when unchecked
 - Implement Load/Save Configurations

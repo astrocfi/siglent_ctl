@@ -668,13 +668,451 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         return measurements
 
 
-    #########################################
-    ### Override from ConfigureWidgetBase ###
-    #########################################
+    ############################################################################
+    ### Setup Window Layout
+    ############################################################################
+
+    def _init_widgets(self):
+        toplevel_widget = self._toplevel_widget()
+
+        ### Add to Device menu
+
+        action = QAction('Show &battery report...', self)
+        action.triggered.connect(self._menu_do_device_batt_report)
+        self._menubar_device.addAction(action)
+
+        ### Add to View menu
+
+        action = QAction('&Parameters', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_parameters)
+        self._menubar_view.addAction(action)
+        action = QAction('&Load and Trigger', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_load_trigger)
+        self._menubar_view.addAction(action)
+        action = QAction('&Measurements', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_measurements)
+        self._menubar_view.addAction(action)
+
+        ### Set up configuration window widgets
+
+        main_vert_layout = QVBoxLayout(toplevel_widget)
+        main_vert_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+
+        ###### ROW 1 - Modes and Paramter Values ######
+
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_row_parameters = w;
+
+        ### ROW 1, COLUMN 1 ###
+
+        # Overall mode: Basic, Dynamic, LED, Battery, List, Program, OCPT, OPPT
+        layouts = QVBoxLayout()
+        row_layout.addLayout(layouts)
+        frame = QGroupBox('Mode')
+        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
+        layouts.addWidget(frame)
+        layouth = QHBoxLayout(frame)
+        layoutv = QVBoxLayout()
+        layoutv.setSpacing(4)
+        layouth.addLayout(layoutv)
+        bg = QButtonGroup(layouts)
+        # Left column
+        for mode in ('Basic', 'LED', 'Battery', 'OCPT', 'OPPT'):
+            rb = QRadioButton(mode)
+            layoutv.addWidget(rb)
+            bg.addButton(rb)
+            rb.button_group = bg
+            rb.wid = mode
+            rb.toggled.connect(self._on_click_overall_mode)
+            self._widget_registry['Overall_'+mode] = rb
+        layoutv.addStretch()
+        # Right column
+        layoutv = QVBoxLayout()
+        layoutv.setSpacing(2)
+        layouth.addLayout(layoutv)
+        for mode in ('Dynamic', 'List', 'Program'):
+            rb = QRadioButton(mode)
+            layoutv.addWidget(rb)
+            bg.addButton(rb)
+            rb.button_group = bg
+            rb.wid = mode
+            rb.toggled.connect(self._on_click_overall_mode)
+            self._widget_registry['Overall_'+mode] = rb
+            if mode == 'Dynamic':
+                bg2 = QButtonGroup(layouts)
+                for mode in ('Continuous', 'Pulse', 'Toggle'):
+                    rb = QRadioButton(mode)
+                    rb.setStyleSheet('padding-left: 1.4em;') # Indent
+                    layoutv.addWidget(rb)
+                    bg2.addButton(rb)
+                    rb.button_group = bg
+                    rb.wid = mode
+                    rb.toggled.connect(self._on_click_dynamic_mode)
+                    self._widget_registry['Dynamic_Mode_'+mode] = rb
+        layoutv.addStretch()
+
+        ### ROW 1, COLUMN 2 ###
+
+        # Mode radio buttons: CV, CC, CP, CR
+        frame = QGroupBox('Constant')
+        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
+        row_layout.addWidget(frame)
+        layoutv = QVBoxLayout(frame)
+        bg = QButtonGroup(layouts)
+        for mode in ('Voltage', 'Current', 'Power', 'Resistance'):
+            rb = QRadioButton(mode)
+            bg.addButton(rb)
+            rb.button_group = bg
+            rb.wid = mode
+            rb.sizePolicy().setRetainSizeWhenHidden(True)
+            rb.toggled.connect(self._on_click_const_mode)
+            self._widget_registry['Const_'+mode] = rb
+            layoutv.addWidget(rb)
+
+        ### ROW 1, COLUMN 3 ###
+
+        # V/I/R Range selections and Aux Parameters
+        layouts = QVBoxLayout()
+        layouts.setSpacing(0)
+        row_layout.addLayout(layouts)
+
+        # V/I/R Range selections
+        frame = QGroupBox('Range')
+        # frame.setStyleSheet('QGroupBox { min-height: 8.1em; max-height: 8.1em; }')
+        layouts.addWidget(frame)
+        layout = QGridLayout(frame)
+        layout.setSpacing(0)
+        for row_num, (mode, ranges) in enumerate((('Voltage', ('36V', '150V')),
+                                                  ('Current', ('5A', '30A')))):
+            layout.addWidget(QLabel(mode+':'), row_num, 0)
+            bg = QButtonGroup(layout)
+            for col_num, range_name in enumerate(ranges):
+                rb = QRadioButton(range_name)
+                bg.addButton(rb)
+                rb.button_group = bg
+                rb.wid = range_name
+                rb.toggled.connect(self._on_click_range)
+                if len(ranges) == 1:
+                    layout.addWidget(rb, row_num, col_num+1, 1, 2)
+                else:
+                    layout.addWidget(rb, row_num, col_num+1)
+                self._widget_registry['Range_'+mode+'_'+range_name.strip('VA')] = rb
+
+        # Aux Parameters
+        frame = self._init_widgets_value_box('Aux Parameters', (
+                    ('Slew (rise)', 'BSlewPos', 'A/\u00B5', 'SLEW:POSITIVE'),
+                    ('Slew (fall)', 'BSlewNeg', 'A/\u00B5', 'SLEW:NEGATIVE'),
+                    ('Slew (rise)', 'TSlewPos', 'A/\u00B5', 'TRANSIENT:SLEW:POSITIVE'),
+                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5', 'TRANSIENT:SLEW:NEGATIVE'),
+                    ('I Min', 'OCPMIN', 'A', 'MIN'),
+                    ('I Max', 'OCPMAX', 'A', 'MAX'),
+                    ('P Min', 'OPPMIN', 'W', 'MIN'),
+                    ('P Max', 'OPPMAX', 'W', 'MAX'),
+                    ))
+        ss = """QGroupBox { min-width: 11em; max-width: 11em;
+                            min-height: 5em; max-height: 5em; }
+                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+             """
+        frame.setStyleSheet(ss)
+        layouts.addWidget(frame)
+
+        ### ROW 1, COLUMN 4 ###
+
+        # Main Parameters
+        frame = self._init_widgets_value_box('Main Parameters', (
+                    ('Voltage',     'Voltage',     'V',      'LEVEL:IMMEDIATE'),
+                    ('Current',     'Current',     'A',      'LEVEL:IMMEDIATE'),
+                    ('Power',       'Power',       'W',      'LEVEL:IMMEDIATE'),
+                    ('Resistance',  'Resistance',  '\u2126', 'LEVEL:IMMEDIATE'),
+                    ('A Level',     'ALevelV',     'V',      'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelV',     'V',      'TRANSIENT:BLEVEL'),
+                    ('A Level',     'ALevelC',     'A',      'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelC',     'A',      'TRANSIENT:BLEVEL'),
+                    ('A Level',     'ALevelP',     'W',      'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelP',     'W',      'TRANSIENT:BLEVEL'),
+                    ('A Level',     'ALevelR',     '\u2126', 'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelR',     '\u2126', 'TRANSIENT:BLEVEL'),
+                    ('A Width',     'AWidth',      's',      'TRANSIENT:AWIDTH'),
+                    ('B Width',     'BWidth',      's',      'TRANSIENT:BWIDTH'),
+                    ('Width',       'Width',       's',      'TRANSIENT:BWIDTH'),
+                    ('Vo',          'LEDV',        'V',      'VOLTAGE'),
+                    ('Io',          'LEDC',        'A',      'CURRENT'),
+                    ('Rco',         'LEDR',        None,     'RCONF'),
+                    ('Current',     'BATTC',       'A',      'LEVEL'),
+                    ('Power',       'BATTP',       'W',      'LEVEL'),
+                    ('Resistance',  'BATTR',       '\u2126', 'LEVEL'),
+                    ('V Stop',      'BATTVSTOP',   'V',      'VOLTAGE'),
+                    ('Cap Stop',    'BATTCAPSTOP', 'mAh',    'CAP'),
+                    ('Time Stop',   'BATTTSTOP',   's',      'TIMER'),
+                    ('Von',         'OCPV',        'V',      'VOLTAGE'),
+                    ('I Start',     'OCPSTART',    'A',      'START'),
+                    ('I End',       'OCPEND',      'A',      'END'),
+                    ('I Step',      'OCPSTEP',     'A',      'STEP'),
+                    ('Step Delay',  'OCPDELAY',    's',      'STEP:DELAY'),
+                    ('Prot V',      'OPPV',        'V',      'VOLTAGE'),
+                    ('P Start',     'OPPSTART',    'W',      'START'),
+                    ('P End',       'OPPEND',      'W',      'END'),
+                    ('P Step',      'OPPSTEP',     'W',      'STEP'),
+                    ('Step Delay',  'OPPDELAY',    's',      'STEP:DELAY')))
+        ss = """QGroupBox { min-width: 11em; max-width: 11em;
+                            min-height: 10em; max-height: 10em; }
+                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+             """
+        frame.setStyleSheet(ss)
+        row_layout.addWidget(frame)
+
+        ###################
+
+        ###### ROW 2 - PROGRAM MODE ######
+
+        ###### ROW 3 - LIST MODE ######
+
+        ###### ROW 4 - SHORT/LOAD/TRIGGER ######
+
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_row_trigger = w;
+
+        ###### ROW 4, COLUMN 1 - SHORT ######
+
+        layoutv = QVBoxLayout()
+        layoutv.setSpacing(0)
+        row_layout.addLayout(layoutv)
+
+        w = QPushButton('') # SHORT ON/OFF
+        w.setEnabled(False) # Default to disabled since checkbox is unchecked
+        w.clicked.connect(self._on_click_short_on_off)
+        layoutv.addWidget(w)
+        self._widget_registry['ShortONOFF'] = w
+        layouth = QHBoxLayout()
+        layoutv.addLayout(layouth)
+        layouth.addStretch()
+        w = QCheckBox('Enable short operation') # Enable short
+        w.setChecked(False)
+        w.clicked.connect(self._on_click_short_enable)
+        layouth.addWidget(w)
+        self._widget_registry['ShortONOFFEnable'] = w
+        self._update_short_onoff_button(False) # Sets the style sheet
+        layouth.addStretch()
+
+        row_layout.addStretch()
+
+        ###### ROW 4, COLUMN 2 - LOAD ######
+
+        w = QPushButton('') # LOAD ON/OFF
+        w.clicked.connect(self._on_click_load_on_off)
+        row_layout.addWidget(w)
+        self._widget_registry['LoadONOFF'] = w
+        self._update_load_onoff_button(False) # Sets the style sheet
+
+        row_layout.addStretch()
+
+        ###### ROW 4, COLUMN 3 - TRIGGER ######
+
+        layoutv = QVBoxLayout()
+        layoutv.setSpacing(0)
+        row_layout.addLayout(layoutv)
+        bg = QButtonGroup(layoutv)
+        rb = QRadioButton('Bus')
+        rb.setChecked(True)
+        rb.mode = 'Bus'
+        bg.addButton(rb)
+        rb.button_group = bg
+        rb.clicked.connect(self._on_click_trigger_source)
+        layoutv.addWidget(rb)
+        self._widget_registry['Trigger_Bus'] = rb
+        rb = QRadioButton('Man')
+        rb.mode = 'Manual'
+        bg.addButton(rb)
+        rb.button_group = bg
+        rb.clicked.connect(self._on_click_trigger_source)
+        layoutv.addWidget(rb)
+        self._widget_registry['Trigger_Man'] = rb
+        rb = QRadioButton('Ext')
+        rb.mode = 'External'
+        bg.addButton(rb)
+        rb.button_group = bg
+        rb.clicked.connect(self._on_click_trigger_source)
+        layoutv.addWidget(rb)
+        self._widget_registry['Trigger_Ext'] = rb
+
+        w = QPushButton('TRIG\u25CE')
+        w.clicked.connect(self._on_click_trigger)
+        ss = """QPushButton {
+                    min-width: 2.9em; max-width: 2.9em;
+                    min-height: 1.5em; max-height: 1.5em;
+                    border-radius: 0.75em; border: 4px solid black;
+                    font-weight: bold; font-size: 18px;
+                    background: #ffff80; }
+                QPushButton:pressed { border: 6px solid black; }"""
+        w.setStyleSheet(ss)
+        row_layout.addWidget(w)
+        self._widget_registry['Trigger'] = w
+
+        ###################
+
+        ###### ROW 5 - MEASUREMENTS ######
+
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_row_measurements = w;
+
+        # Enable measurements, reset battery log button
+        layoutv = QVBoxLayout()
+        layoutv.setSpacing(0)
+        row_layout.addLayout(layoutv)
+        layoutv.addWidget(QLabel('Enable measurements:'))
+        cb = QCheckBox('Voltage')
+        cb.setStyleSheet('padding-left: 0.5em;') # Indent
+        cb.setChecked(True)
+        cb.mode = 'V'
+        cb.clicked.connect(self._on_click_enable_measurements)
+        layoutv.addWidget(cb)
+        self._widget_registry['Enable_V'] = cb
+        cb = QCheckBox('Current')
+        cb.setStyleSheet('padding-left: 0.5em;') # Indent
+        cb.setChecked(True)
+        cb.mode = 'C'
+        cb.clicked.connect(self._on_click_enable_measurements)
+        layoutv.addWidget(cb)
+        self._widget_registry['Enable_C'] = cb
+        cb = QCheckBox('Power')
+        cb.setStyleSheet('padding-left: 0.5em;') # Indent
+        cb.setChecked(True)
+        cb.mode = 'P'
+        cb.clicked.connect(self._on_click_enable_measurements)
+        layoutv.addWidget(cb)
+        self._widget_registry['Enable_P'] = cb
+        cb = QCheckBox('Resistance')
+        cb.setStyleSheet('padding-left: 0.5em;') # Indent
+        cb.setChecked(True)
+        cb.mode = 'R'
+        cb.clicked.connect(self._on_click_enable_measurements)
+        layoutv.addWidget(cb)
+        self._widget_registry['Enable_R'] = cb
+        layoutv.addStretch()
+        pb = QPushButton('Reset Addl Cap && Test Log')
+        pb.clicked.connect(self._on_click_reset_batt_test)
+        layoutv.addWidget(pb)
+        self._widget_registry['ClearAddCap'] = pb
+        layoutv.addStretch()
+
+        row_layout.addStretch()
+
+        # Main measurements widget
+        container = QWidget()
+        container.setStyleSheet('background: black;')
+        row_layout.addStretch()
+        row_layout.addWidget(container)
+
+        ss = """font-size: 30px; font-weight: bold; font-family: "Courier New";
+                min-width: 6.5em; color: yellow;
+             """
+        ss2 = """font-size: 30px; font-weight: bold; font-family: "Courier New";
+                min-width: 6.5em; color: red;
+             """
+        ss3 = """font-size: 15px; font-weight: bold; font-family: "Courier New";
+                min-width: 6.5em; color: red;
+             """
+        layout = QGridLayout(container)
+        w = QLabel('---   V')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss)
+        layout.addWidget(w, 0, 0)
+        self._widget_registry['MeasureV'] = w
+        w = QLabel('---   A')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss)
+        layout.addWidget(w, 0, 1)
+        self._widget_registry['MeasureC'] = w
+        w = QLabel('---   W')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss)
+        layout.addWidget(w, 1, 0)
+        self._widget_registry['MeasureP'] = w
+        w = QLabel('---   \u2126')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss)
+        layout.addWidget(w, 1, 1)
+        self._widget_registry['MeasureR'] = w
+        w = QLabel('00:00:00')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss2)
+        layout.addWidget(w, 2, 0)
+        self._widget_registry['MeasureBattTime'] = w
+        w = QLabel('---  mAh')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss2)
+        layout.addWidget(w, 2, 1)
+        self._widget_registry['MeasureBattCap'] = w
+        w = QLabel('Addl Cap:    --- mAh')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss3)
+        layout.addWidget(w, 3, 0)
+        self._widget_registry['MeasureBattAddCap'] = w
+        w = QLabel('Total Cap:    --- mAh')
+        w.setAlignment(Qt.AlignmentFlag.AlignRight)
+        w.setStyleSheet(ss3)
+        layout.addWidget(w, 3, 1)
+        self._widget_registry['MeasureBattTotalCap'] = w
+        row_layout.addStretch()
+
+    # Our general philosophy is to create all of the possible input widgets for all
+    # parameters and all units, and then hide the ones we don't need.
+    # The details structure contains a list of:
+    #   - The string to display as the input label
+    #   - The name of the parameter as used in the _SDL_MODE_PARAMS dictionary
+    #   - The unit to display in the input edit field
+    #   - The SCPI parameter name, which gets added as an attribute on the widget
+    def _init_widgets_value_box(self, title, details):
+        # Value for most modes
+        frame = QGroupBox(title)
+        widget_prefix = title.replace(' ', '')
+        layoutv = QVBoxLayout(frame)
+        for (display, param_name, unit, scpi) in details:
+            layouth = QHBoxLayout()
+            label = QLabel(display+':')
+            layouth.addWidget(label)
+            input = QDoubleSpinBox()
+            input.wid = (param_name, scpi)
+            input.setAlignment(Qt.AlignmentFlag.AlignRight)
+            input.setDecimals(3)
+            input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
+            input.setAccelerated(True)
+            if unit is not None:
+                input.setSuffix(' '+unit)
+            input.editingFinished.connect(self._on_value_change)
+            layouth.addWidget(input)
+            label.sizePolicy().setRetainSizeWhenHidden(True)
+            input.sizePolicy().setRetainSizeWhenHidden(True)
+            layoutv.addLayout(layouth)
+            self._widget_registry[f'{widget_prefix}_{param_name}'] = input
+            self._widget_registry[f'{widget_prefix}Label_{param_name}'] = label
+        layoutv.addStretch()
+        return frame
+
+
+    ############################################################################
+    ### Action and Callback Handlers
+    ############################################################################
 
     def _menu_do_about(self):
         """Show the About box."""
-        msg = """Siglent SDL1000-series configuration widget.\n\n
+        msg = """Siglent SDL1000-series configuration widget.
+
 Copyright 2022, Robert S. French"""
         QMessageBox.about(self, 'About', msg)
 
@@ -715,6 +1153,356 @@ Copyright 2022, Robert S. French"""
         self._inst.write('*RST', timeout=10000)
         self.refresh()
         self.setEnabled(True)
+
+    def _menu_do_device_batt_report(self):
+        """Produce the battery discharge report, if any, and display it in a dialog."""
+        report = self._batt_log_report()
+        if report is None:
+            report = 'No current battery log.'
+        print(report)
+        self._printable_text_dialog('Battery Discharge Report', report)
+
+    def _menu_do_view_parameters(self, state):
+        """Toggle visibility of the parameters row."""
+        if state:
+            self._widget_row_parameters.show()
+        else:
+            self._widget_row_parameters.hide()
+
+    def _menu_do_view_load_trigger(self, state):
+        """Toggle visibility of the short/load/trigger row."""
+        if state:
+            self._widget_row_trigger.show()
+        else:
+            self._widget_row_trigger.hide()
+
+    def _menu_do_view_measurements(self, state):
+        """Toggle visibility of the measurements row."""
+        if state:
+            self._widget_row_measurements.show()
+        else:
+            self._widget_row_measurements.hide()
+
+    def _on_click_overall_mode(self):
+        """Handle clicking on an Overall Mode button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+        self._cur_overall_mode = rb.wid
+        self._cur_dynamic_mode = None
+        new_param_state = {}
+        # Special handling for each button
+        match self._cur_overall_mode:
+            case 'Basic':
+                self._cur_const_mode = self._param_state[':FUNCTION'].title()
+                if self._cur_const_mode in ('Led', 'OCP', 'OPP'):
+                    # LED is weird in that the instrument treats it as a BASIC mode
+                    # but there's no CV/CC/CP/CR choice.
+                    # We lose information going from OCP/OPP back to Basic because
+                    # we don't know which basic mode we were in before!
+                    self._cur_const_mode = 'Voltage' # For lack of anything else to do
+                # Force update since this does more than set a parameter - it switches
+                # modes
+                self._param_state[':FUNCTION'] = None
+                new_param_state[':FUNCTION'] = self._cur_const_mode.upper()
+                self._param_state[':FUNCTION:MODE'] = 'BASIC'
+            case 'Dynamic':
+                self._cur_const_mode = (
+                        self._param_state[':FUNCTION:TRANSIENT'].title())
+                # Dynamic also has sub-modes - Continuous, Pulse, Toggle
+                param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
+                mode_name = param_info['mode_name']
+                self._cur_dynamic_mode = (
+                            self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
+                # Force update since this does more than set a parameter - it switches
+                # modes
+                self._param_state[':FUNCTION:TRANSIENT'] = None
+                new_param_state[':FUNCTION:TRANSIENT'] = self._cur_const_mode.upper()
+                self._param_state[':FUNCTION:MODE'] = 'TRAN'
+            case 'LED':
+                # Force update since this does more than set a parameter - it switches
+                # modes
+                self._param_state[':FUNCTION'] = None
+                new_param_state[':FUNCTION'] = 'LED' # LED is consider a BASIC mode
+                self._param_state[':FUNCTION:MODE'] = 'BASIC'
+                self._cur_const_mode = None
+            case 'Battery':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in the Battery mode, but it
+                # doesn't allow us to SWITCH TO the Battery mode!
+                self._inst.write(':BATTERY:FUNC')
+                self._param_state[':FUNCTION:MODE'] = 'BATTERY'
+                self._cur_const_mode = self._param_state[':BATTERY:MODE'].title()
+            case 'OCPT':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in OCP mode, but it
+                # doesn't allow us to SWITCH TO the OCP mode!
+                self._inst.write(':OCP:FUNC')
+                self._param_state[':FUNCTION:MODE'] = 'OCP'
+                self._cur_const_mode = None
+            case 'OPPT':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in OPP mode, but it
+                # doesn't allow us to SWITCH TO the OPP mode!
+                self._inst.write(':OPP:FUNC')
+                self._param_state[':FUNCTION:MODE'] = 'OPP'
+                self._cur_const_mode = None
+            case 'List':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in List mode, but it
+                # doesn't allow us to SWITCH TO the List mode!
+                self._inst.write(':LIST:STATE:ON')
+                self._param_state[':FUNCTION:MODE'] = 'LIST'
+                self._cur_const_mode = self._param_state[':LIST:MODE'].title()
+            case 'Program':
+                # This is not a parameter with a state - it's just a command to switch
+                # modes. The normal :FUNCTION tells us we're in List mode, but it
+                # doesn't allow us to SWITCH TO the List mode!
+                self._inst.write(':PROGRAM:STATE:ON')
+                self._param_state[':FUNCTION:MODE'] = 'PROGRAM'
+                self._cur_const_mode = None
+
+        # Changing the mode turns off the load and short.
+        # We have to do this manually in order for the later mode change to take effect.
+        # If you try to change mode while the load is on, the SDL turns off the load,
+        # but then ignores the mode change.
+        self._update_load_state(0)
+        self._update_short_state(0)
+
+        self._update_param_state_and_inst(new_param_state)
+        self._update_widgets()
+
+    def _on_click_dynamic_mode(self):
+        """Handle clicking on a Dynamic Mode button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+
+        self._cur_dynamic_mode = rb.wid
+
+        # Changing the mode turns off the load and short.
+        # We have to do this manually in order for the later mode change to take effect.
+        # If you try to change mode while the load is on, the SDL turns off the load,
+        # but then ignores the mode change.
+        self._update_load_state(0)
+        self._update_short_state(0)
+
+        info = self._cur_mode_param_info()
+        mode_name = info['mode_name']
+        new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper(),
+                           f':{mode_name}:TRANSIENT:MODE': rb.wid.upper()}
+
+        self._update_param_state_and_inst(new_param_state)
+        self._update_widgets()
+
+    def _on_click_const_mode(self):
+        """Handle clicking on a Constant Mode button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+        self._cur_const_mode = rb.wid
+        match self._cur_overall_mode:
+            case 'Basic':
+                new_param_state = {':FUNCTION': self._cur_const_mode.upper()}
+            case 'Dynamic':
+                new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper()}
+                info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
+                mode_name = info['mode_name']
+                self._cur_dynamic_mode = (
+                            self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
+            case 'Battery':
+                new_param_state = {':BATTERY:MODE': self._cur_const_mode}
+            case 'List':
+                new_param_state = {':LIST:MODE': self._cur_const_mode}
+            # None of the other modes have a "constant mode"
+
+        # Changing the mode turns off the load and short.
+        # We have to do this manually in order for the later mode change to take effect.
+        # If you try to change mode while the load is on, the SDL turns off the load,
+        # but then ignores the mode change.
+        self._update_load_state(0)
+        self._update_short_state(0)
+
+        self._update_param_state_and_inst(new_param_state)
+        self._update_widgets()
+
+    def _on_click_range(self):
+        """Handle clicking on a V or I range button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+        info = self._cur_mode_param_info()
+        mode_name = info['mode_name']
+        val = rb.wid
+        trans = self._transient_string()
+        if val.endswith('V'):
+            new_param_state = {f':{mode_name}{trans}:VRANGE': val.strip('V')}
+        else:
+            new_param_state = {f':{mode_name}{trans}:IRANGE': val.strip('A')}
+        self._update_param_state_and_inst(new_param_state)
+        self._update_widgets()
+
+    def _on_value_change(self):
+        """Handle clicking on any input value edit box."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        input = self.sender()
+        mode, scpi = input.wid
+        info = self._cur_mode_param_info()
+        mode_name = info['mode_name']
+        val = input.value()
+        if '.' in val:
+            val = float(input.value())
+        else:
+            val = int(val)
+        new_param_state = {f':{mode_name}:{scpi}': val}
+        self._update_param_state_and_inst(new_param_state)
+        self._update_widgets()
+
+    def _on_click_short_enable(self):
+        """Handle clicking on the short enable checkbox."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        cb = self.sender()
+        if not cb.isChecked():
+            self._update_short_onoff_button(None)
+        else:
+            self._update_short_state(0) # Also updates the button
+
+    def _on_click_short_on_off(self):
+        """Handle clicking on the SHORT button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        bt = self.sender()
+        state = 1-self._param_state[':SHORT:STATE']
+        self._update_short_state(state) # Also updates the button
+
+    def _update_short_onoff_button(self, state=None):
+        """Update the style of the SHORT button based on current or given state."""
+        if state is None:
+            state = self._param_state[':SHORT:STATE']
+        bt = self._widget_registry['ShortONOFF']
+        if state:
+            bt.setText('\u26A0 SHORT IS ON \u26A0')
+            bg_color = '#ff0000'
+        else:
+            bt.setText('SHORT IS OFF')
+            bg_color = '#00ff00'
+        ss = f"""QPushButton {{
+                background-color: {bg_color};
+                min-width: 7.5em; max-width: 7.5em; min-height: 1.1em; max-height: 1.1em;
+                border-radius: 0.3em; border: 3px solid black;
+                font-weight: bold; font-size: 14px; }}
+             QPushButton::pressed {{ border: 4px solid black; }}
+              """
+        bt.setStyleSheet(ss)
+        if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+            # There is no SHORT capability in these modes
+            self._widget_registry['ShortONOFFEnable'].setEnabled(False)
+            self._widget_registry['ShortONOFF'].setEnabled(False)
+        elif self._widget_registry['ShortONOFFEnable'].isChecked():
+            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
+            self._widget_registry['ShortONOFF'].setEnabled(True)
+        else:
+            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
+            self._widget_registry['ShortONOFF'].setEnabled(False)
+
+    def _on_click_load_on_off(self):
+        """Handle clicking on the LOAD button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        bt = self.sender()
+        state = 1-self._param_state[':INPUT:STATE']
+        self._update_load_state(state) # Also updates the button
+
+    def _update_load_onoff_button(self, state=None):
+        """Update the style of the SHORT button based on current or given state."""
+        if state is None:
+            state = self._param_state[':INPUT:STATE']
+        bt = self._widget_registry['LoadONOFF']
+        if state:
+            if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+                bt.setText('STOP TEST')
+            else:
+                bt.setText('LOAD IS ON')
+            bg_color = '#ffc0c0'
+        else:
+            if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+                bt.setText('START TEST')
+            else:
+                bt.setText('LOAD IS OFF')
+            bg_color = '#c0ffb0'
+        ss = f"""QPushButton {{
+                    background-color: {bg_color};
+                    min-width: 7em; max-width: 7em;
+                    min-height: 1em; max-height: 1em;
+                    border-radius: 0.4em; border: 5px solid black;
+                    font-weight: bold; font-size: 22px; }}
+                 QPushButton:pressed {{ border: 7px solid black; }}
+              """
+        bt.setStyleSheet(ss)
+
+    def _on_click_trigger_source(self):
+        """Handle clicking on a trigger source button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+        new_param_state = {':TRIGGER:SOURCE': rb.mode.upper()}
+        self._update_param_state_and_inst(new_param_state)
+        self._update_trigger_buttons()
+
+    def _update_trigger_buttons(self):
+        """Update the trigger button based on the current state."""
+        src = self._param_state[':TRIGGER:SOURCE']
+        self._widget_registry['Trigger_Bus'].setChecked(src == 'BUS')
+        self._widget_registry['Trigger_Man'].setChecked(src == 'MANUAL')
+        self._widget_registry['Trigger_Ext'].setChecked(src == 'EXTERNAL')
+
+        enabled = False
+        if ((self._cur_overall_mode == 'Dynamic' and
+             self._cur_dynamic_mode != 'Continuous' and
+             src == 'Bus' and
+             self._param_state[':INPUT:STATE']) or
+            self._cur_overall_mode in ('List', 'Program') and
+             src == 'Bus')):
+            enabled = True
+        self._widget_registry['Trigger'].setEnabled(enabled)
+
+    def _on_click_trigger(self):
+        """Handle clicking on the main trigger button."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        self._inst.trg()
+
+    def _on_click_enable_measurements(self):
+        """Handle clicking on an enable measurements checkbox."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        cb = self.sender()
+        match cb.mode:
+            case 'V':
+                self._enable_measurement_v = cb.isChecked()
+            case 'C':
+                self._enable_measurement_c = cb.isChecked()
+            case 'P':
+                self._enable_measurement_p = cb.isChecked()
+            case 'R':
+                self._enable_measurement_r = cb.isChecked()
+
+    def _on_click_reset_batt_test(self):
+        """Handle clicking on the reset battery log button."""
+        self._inst.write(':BATT:ADDCAP 0')
+        self._reset_batt_log()
 
 
     ################################
@@ -1083,7 +1871,10 @@ Copyright 2022, Robert S. French"""
         if single:
             ret += 'Test mode: '+self._batt_log_modes[0]+'\n'
             ret += 'Stop condition: '+self._batt_log_stop_cond[0]+'\n'
-            ret += 'Initial voltage: %.3fV\n'%self._batt_log_initial_voltages[0]
+            if self._batt_log_initial_voltages[0] is None:
+                ret += 'Initial voltage: Not measured\n'
+            else:
+                ret += 'Initial voltage: %.3fV\n'%self._batt_log_initial_voltages[0]
         cap = sum(self._batt_log_caps)
         ret += 'Capacity: %.3fAh\n' % (cap/1000)
         if not single:
@@ -1094,733 +1885,12 @@ Copyright 2022, Robert S. French"""
                 ret += 'Test time: '+self._time_to_hms(self._batt_log_run_times[i])+'\n'
                 ret += 'Test mode: '+self._batt_log_modes[i]+'\n'
                 ret += 'Stop condition: '+self._batt_log_stop_cond[i]+'\n'
-                ret += 'Initial voltage: %.3f\n'%self._batt_log_initial_voltages[i]
+                if self._batt_log_initial_voltages[i] is None:
+                    ret += 'Initial voltage: Not measured\n'
+                else:
+                    ret += 'Initial voltage: %.3f\n'%self._batt_log_initial_voltages[i]
                 ret += 'Capacity: %.3fAh\n' % (self._batt_log_caps[i]/1000)
         return ret
-
-
-    ############################################################################
-    ### SETUP WINDOW LAYOUT
-    ############################################################################
-
-    def _init_widgets(self):
-        toplevel_widget = self._toplevel_widget()
-
-        ### Add to Device menu
-
-        action = QAction('Show &battery report...', self)
-        action.triggered.connect(self._menu_do_device_batt_report)
-        self._menubar_device.addAction(action)
-
-        ### Add to View menu
-
-        action = QAction('&Parameters', self, checkable=True)
-        action.setChecked(True)
-        action.triggered.connect(self._menu_do_view_parameters)
-        self._menubar_view.addAction(action)
-        action = QAction('&Load and Trigger', self, checkable=True)
-        action.setChecked(True)
-        action.triggered.connect(self._menu_do_view_load_trigger)
-        self._menubar_view.addAction(action)
-        action = QAction('&Measurements', self, checkable=True)
-        action.setChecked(True)
-        action.triggered.connect(self._menu_do_view_measurements)
-        self._menubar_view.addAction(action)
-
-        ### Set up window widgets
-
-        main_vert_layout = QVBoxLayout(toplevel_widget)
-        main_vert_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
-
-        ###### ROW 1 ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_row_parameters = w;
-
-        ### COLUMN 1 ###
-
-        # Overall mode: Basic, Dynamic, LED, Battery, List, Program, OCPT, OPPT
-        layouts = QVBoxLayout()
-        row_layout.addLayout(layouts)
-        frame = QGroupBox('Mode')
-        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
-        layouts.addWidget(frame)
-        layouth = QHBoxLayout(frame)
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(4)
-        layouth.addLayout(layoutv)
-        bg = QButtonGroup(layouts)
-        # Left column
-        for mode in ('Basic', 'LED', 'Battery', 'OCPT', 'OPPT'):
-            rb = QRadioButton(mode)
-            layoutv.addWidget(rb)
-            bg.addButton(rb)
-            rb.button_group = bg
-            rb.wid = mode
-            rb.toggled.connect(self._on_click_overall_mode)
-            self._widget_registry['Overall_'+mode] = rb
-        layoutv.addStretch()
-        # Right column
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(2)
-        layouth.addLayout(layoutv)
-        for mode in ('Dynamic', 'List', 'Program'):
-            rb = QRadioButton(mode)
-            layoutv.addWidget(rb)
-            bg.addButton(rb)
-            rb.button_group = bg
-            rb.wid = mode
-            rb.toggled.connect(self._on_click_overall_mode)
-            self._widget_registry['Overall_'+mode] = rb
-            if mode == 'Dynamic':
-                bg2 = QButtonGroup(layouts)
-                for mode in ('Continuous', 'Pulse', 'Toggle'):
-                    rb = QRadioButton(mode)
-                    rb.setStyleSheet('padding-left: 1.4em;') # Indent
-                    layoutv.addWidget(rb)
-                    bg2.addButton(rb)
-                    rb.button_group = bg
-                    rb.wid = mode
-                    rb.toggled.connect(self._on_click_dynamic_mode)
-                    self._widget_registry['Dynamic_Mode_'+mode] = rb
-        layoutv.addStretch()
-        # layouts.addStretch()
-
-        ### COLUMN 2 ###
-
-        # Mode radio buttons: CV, CC, CP, CR
-        frame = QGroupBox('Constant')
-        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
-        row_layout.addWidget(frame)
-        layoutv = QVBoxLayout(frame)
-        bg = QButtonGroup(layouts)
-        for mode in ('Voltage', 'Current', 'Power', 'Resistance'):
-            rb = QRadioButton(mode)
-            bg.addButton(rb)
-            rb.button_group = bg
-            rb.wid = mode
-            rb.sizePolicy().setRetainSizeWhenHidden(True)
-            rb.toggled.connect(self._on_click_const_mode)
-            self._widget_registry['Const_'+mode] = rb
-            layoutv.addWidget(rb)
-
-        ### COLUMN 3 ###
-
-        layouts = QVBoxLayout()
-        layouts.setSpacing(0)
-        row_layout.addLayout(layouts)
-
-        # V/I/R Range selections
-        frame = QGroupBox('Range')
-        # frame.setStyleSheet('QGroupBox { min-height: 8.1em; max-height: 8.1em; }')
-        layouts.addWidget(frame)
-        layout = QGridLayout(frame)
-        layout.setSpacing(0)
-        for row_num, (mode, ranges) in enumerate((('Voltage', ('36V', '150V')),
-                                                  ('Current', ('5A', '30A')))):
-            layout.addWidget(QLabel(mode+':'), row_num, 0)
-            bg = QButtonGroup(layout)
-            for col_num, range_name in enumerate(ranges):
-                rb = QRadioButton(range_name)
-                bg.addButton(rb)
-                rb.button_group = bg
-                rb.wid = range_name
-                rb.toggled.connect(self._on_click_range)
-                if len(ranges) == 1:
-                    layout.addWidget(rb, row_num, col_num+1, 1, 2)
-                else:
-                    layout.addWidget(rb, row_num, col_num+1)
-                self._widget_registry['Range_'+mode+'_'+range_name.strip('VA')] = rb
-
-        frame = self._init_widgets_value_box('Aux Parameters', (
-                    ('Slew (rise)', 'BSlewPos', 'A/\u00B5', 'SLEW:POSITIVE'),
-                    ('Slew (fall)', 'BSlewNeg', 'A/\u00B5', 'SLEW:NEGATIVE'),
-                    ('Slew (rise)', 'TSlewPos', 'A/\u00B5', 'TRANSIENT:SLEW:POSITIVE'),
-                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5', 'TRANSIENT:SLEW:NEGATIVE'),
-                    ('I Min', 'OCPMIN', 'A', 'MIN'),
-                    ('I Max', 'OCPMAX', 'A', 'MAX'),
-                    ('P Min', 'OPPMIN', 'W', 'MIN'),
-                    ('P Max', 'OPPMAX', 'W', 'MAX'),
-                    ))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 5em; max-height: 5em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
-        layouts.addWidget(frame)
-
-        ### COLUMN 4 ###
-
-        frame = self._init_widgets_value_box('Main Parameters', (
-                    ('Voltage', 'Voltage', 'V', 'LEVEL:IMMEDIATE'),
-                    ('Current', 'Current', 'A', 'LEVEL:IMMEDIATE'),
-                    ('Power', 'Power', 'W', 'LEVEL:IMMEDIATE'),
-                    ('Resistance', 'Resistance', '\u2126', 'LEVEL:IMMEDIATE'),
-                    ('A Level', 'ALevelV', 'V', 'TRANSIENT:ALEVEL'),
-                    ('B Level', 'BLevelV', 'V', 'TRANSIENT:BLEVEL'),
-                    ('A Level', 'ALevelC', 'A', 'TRANSIENT:ALEVEL'),
-                    ('B Level', 'BLevelC', 'A', 'TRANSIENT:BLEVEL'),
-                    ('A Level', 'ALevelP', 'W', 'TRANSIENT:ALEVEL'),
-                    ('B Level', 'BLevelP', 'W', 'TRANSIENT:BLEVEL'),
-                    ('A Level', 'ALevelR', '\u2126', 'TRANSIENT:ALEVEL'),
-                    ('B Level', 'BLevelR', '\u2126', 'TRANSIENT:BLEVEL'),
-                    ('A Width', 'AWidth', 's', 'TRANSIENT:AWIDTH'),
-                    ('B Width', 'BWidth', 's', 'TRANSIENT:BWIDTH'),
-                    ('Width', 'Width', 's', 'TRANSIENT:BWIDTH'),
-                    ('Vo', 'LEDV', 'V', 'VOLTAGE'),
-                    ('Io', 'LEDC', 'A', 'CURRENT'),
-                    ('Rco', 'LEDR', None, 'RCONF'),
-                    ('Current', 'BATTC', 'A', 'LEVEL'),
-                    ('Power', 'BATTP', 'W', 'LEVEL'),
-                    ('Resistance', 'BATTR', '\u2126', 'LEVEL'),
-                    ('V Stop', 'BATTVSTOP', 'V', 'VOLTAGE'),
-                    ('Cap Stop', 'BATTCAPSTOP', 'mAh', 'CAP'),
-                    ('Time Stop', 'BATTTSTOP', 's', 'TIMER'),
-                    ('Von', 'OCPV', 'V', 'VOLTAGE'),
-                    ('I Start', 'OCPSTART', 'A', 'START'),
-                    ('I End', 'OCPEND', 'A', 'END'),
-                    ('I Step', 'OCPSTEP', 'A', 'STEP'),
-                    ('Step Delay', 'OCPDELAY', 's', 'STEP:DELAY'),
-                    ('Prot V', 'OPPV', 'V', 'VOLTAGE'),
-                    ('P Start', 'OPPSTART', 'W', 'START'),
-                    ('P End', 'OPPEND', 'W', 'END'),
-                    ('P Step', 'OPPSTEP', 'W', 'STEP'),
-                    ('Step Delay', 'OPPDELAY', 's', 'STEP:DELAY')))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 10em; max-height: 10em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
-        row_layout.addWidget(frame)
-
-        ###################
-
-        ###### ROW 2 ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_row_trigger = w;
-
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
-        row_layout.addLayout(layoutv)
-
-        w = QPushButton('') # SHORT ON/OFF
-        w.setEnabled(False) # Default to disabled since checkbox is unchecked
-        w.clicked.connect(self._on_click_short_on_off)
-        layoutv.addWidget(w)
-        self._widget_registry['ShortONOFF'] = w
-        layouth = QHBoxLayout()
-        layoutv.addLayout(layouth)
-        layouth.addStretch()
-        w = QCheckBox('Enable short operation') # Enable short
-        w.setChecked(False)
-        w.clicked.connect(self._on_click_short_enable)
-        layouth.addWidget(w)
-        self._widget_registry['ShortONOFFEnable'] = w
-        self._update_short_onoff_button(False) # Sets the style sheet
-        layouth.addStretch()
-
-        row_layout.addStretch()
-
-        w = QPushButton('') # LOAD ON/OFF
-        w.clicked.connect(self._on_click_load_on_off)
-        row_layout.addWidget(w)
-        self._widget_registry['LoadONOFF'] = w
-        self._update_load_onoff_button(False) # Sets the style sheet
-
-        row_layout.addStretch()
-
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
-        row_layout.addLayout(layoutv)
-        bg = QButtonGroup(layoutv)
-        rb = QRadioButton('Bus')
-        rb.setChecked(True)
-        rb.mode = 'Bus'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Bus'] = rb
-        rb = QRadioButton('Man')
-        rb.mode = 'Manual'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Man'] = rb
-        rb = QRadioButton('Ext')
-        rb.mode = 'External'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Ext'] = rb
-
-        w = QPushButton('TRIG\u25CE')
-        w.clicked.connect(self._on_click_trigger)
-        ss = """QPushButton {
-                    min-width: 2.9em; max-width: 2.9em;
-                    min-height: 1.5em; max-height: 1.5em;
-                    border-radius: 0.75em; border: 4px solid black;
-                    font-weight: bold; font-size: 18px;
-                    background: #ffff80; }
-                QPushButton:pressed { border: 6px solid black; }"""
-        w.setStyleSheet(ss)
-        row_layout.addWidget(w)
-        self._widget_registry['Trigger'] = w
-
-        ###################
-
-        ###### ROW 3 ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_row_measurements = w;
-
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
-        row_layout.addLayout(layoutv)
-        layoutv.addWidget(QLabel('Enable measurements:'))
-        cb = QCheckBox('Voltage')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'V'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
-        self._widget_registry['Enable_V'] = cb
-        cb = QCheckBox('Current')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'C'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
-        self._widget_registry['Enable_C'] = cb
-        cb = QCheckBox('Power')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'P'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
-        self._widget_registry['Enable_P'] = cb
-        cb = QCheckBox('Resistance')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'R'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
-        self._widget_registry['Enable_R'] = cb
-        layoutv.addStretch()
-        pb = QPushButton('Reset Addl Cap && Test Log')
-        pb.clicked.connect(self._on_click_reset_batt_test)
-        layoutv.addWidget(pb)
-        self._widget_registry['ClearAddCap'] = pb
-        layoutv.addStretch()
-
-        row_layout.addStretch()
-
-        container = QWidget()
-        container.setStyleSheet('background: black;')
-        row_layout.addStretch()
-        row_layout.addWidget(container)
-
-        ss = """font-size: 30px; font-weight: bold; font-family: "Courier New";
-                min-width: 6.5em; color: yellow;
-             """
-        ss2 = """font-size: 30px; font-weight: bold; font-family: "Courier New";
-                min-width: 6.5em; color: red;
-             """
-        ss3 = """font-size: 15px; font-weight: bold; font-family: "Courier New";
-                min-width: 6.5em; color: red;
-             """
-        layout = QGridLayout(container)
-        w = QLabel('---   V')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss)
-        layout.addWidget(w, 0, 0)
-        self._widget_registry['MeasureV'] = w
-        w = QLabel('---   A')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss)
-        layout.addWidget(w, 0, 1)
-        self._widget_registry['MeasureC'] = w
-        w = QLabel('---   W')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss)
-        layout.addWidget(w, 1, 0)
-        self._widget_registry['MeasureP'] = w
-        w = QLabel('---   \u2126')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss)
-        layout.addWidget(w, 1, 1)
-        self._widget_registry['MeasureR'] = w
-        w = QLabel('00:00:00')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss2)
-        layout.addWidget(w, 2, 0)
-        self._widget_registry['MeasureBattTime'] = w
-        w = QLabel('---  mAh')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss2)
-        layout.addWidget(w, 2, 1)
-        self._widget_registry['MeasureBattCap'] = w
-        w = QLabel('Addl Cap:    --- mAh')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss3)
-        layout.addWidget(w, 3, 0)
-        self._widget_registry['MeasureBattAddCap'] = w
-        w = QLabel('Total Cap:    --- mAh')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss3)
-        layout.addWidget(w, 3, 1)
-        self._widget_registry['MeasureBattTotalCap'] = w
-        row_layout.addStretch()
-
-    def _init_widgets_value_box(self, title, details):
-        # Value for most modes
-        frame = QGroupBox(title)
-        widget_prefix = title.replace(' ', '')
-        layoutv = QVBoxLayout(frame)
-        for (display, mode, unit, scpi) in details:
-            layouth = QHBoxLayout()
-            label = QLabel(display+':')
-            layouth.addWidget(label)
-            input = QDoubleSpinBox()
-            input.wid = (mode, scpi)
-            input.setAlignment(Qt.AlignmentFlag.AlignRight)
-            input.setDecimals(3)
-            input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
-            input.setAccelerated(True)
-            if unit is not None:
-                input.setSuffix(' '+unit)
-            input.editingFinished.connect(self._on_value_change)
-            layouth.addWidget(input)
-            label.sizePolicy().setRetainSizeWhenHidden(True)
-            input.sizePolicy().setRetainSizeWhenHidden(True)
-            layoutv.addLayout(layouth)
-            self._widget_registry[f'{widget_prefix}_{mode}'] = input
-            self._widget_registry[f'{widget_prefix}Label_{mode}'] = label
-        layoutv.addStretch()
-        return frame
-
-
-    ############################################################################
-    ### ACTION HANDLERS
-    ############################################################################
-
-    def _menu_do_device_batt_report(self):
-        report = self._batt_log_report()
-        if report is None:
-            report = 'No current battery log.'
-        print(report)
-        self._printable_text_dialog('Battery Discharge Report', report)
-
-    def _menu_do_view_parameters(self, state):
-        if state:
-            self._widget_row_parameters.show()
-        else:
-            self._widget_row_parameters.hide()
-
-    def _menu_do_view_load_trigger(self, state):
-        if state:
-            self._widget_row_trigger.show()
-        else:
-            self._widget_row_trigger.hide()
-
-    def _menu_do_view_measurements(self, state):
-        if state:
-            self._widget_row_measurements.show()
-        else:
-            self._widget_row_measurements.hide()
-
-    def _on_click_overall_mode(self):
-        if self._disable_callbacks:
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        self._cur_overall_mode = rb.wid
-        self._cur_dynamic_mode = None
-        new_param_state = {}
-        match self._cur_overall_mode:
-            case 'Basic':
-                if self._cur_const_mode is None:
-                    self._cur_const_mode = self._param_state[':FUNCTION'].title()
-                    if self._cur_const_mode == 'Led':
-                        # LED is weird in that the instrument treats it as a BASIC mode
-                        # but there's no CV/CC/CP/CR choice
-                        self._cur_const_mode = 'Voltage' # For lack of anything else to do
-                    elif self._cur_const_mode in ('OCP', 'OPP'):
-                        # We lose information going from OCP/OPP back to Basic because
-                        # we don'tknow which basic mode we were in before!
-                        self._cur_const_mode = 'Voltage'
-                # Force update since this does more than set a parameter - it switches
-                # modes
-                self._param_state[':FUNCTION'] = None
-                new_param_state[':FUNCTION'] = self._cur_const_mode.upper()
-                self._param_state[':FUNCTION:MODE'] = 'BASIC'
-            case 'Dynamic':
-                if self._cur_const_mode is None:
-                    self._cur_const_mode = (
-                            self._param_state[':FUNCTION:TRANSIENT'].title())
-                param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
-                mode_name = param_info['mode_name']
-                self._cur_dynamic_mode = (
-                            self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
-                # Force update since this does more than set a parameter - it switches
-                # modes
-                self._param_state[':FUNCTION:TRANSIENT'] = None
-                new_param_state[':FUNCTION:TRANSIENT'] = self._cur_const_mode.upper()
-                self._param_state[':FUNCTION:MODE'] = 'TRAN'
-            case 'LED':
-                # Force update since this does more than set a parameter - it switches
-                # modes
-                self._param_state[':FUNCTION'] = None
-                new_param_state[':FUNCTION'] = 'LED'
-                self._param_state[':FUNCTION:MODE'] = 'BASIC'
-                self._cur_const_mode = None
-            case 'Battery':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in the Battery mode, but it
-                # doesn't allow us to SWITCH TO the OCP mode!
-                self._inst.write(':BATTERY:FUNC')
-                self._param_state[':FUNCTION:MODE'] = 'BATTERY'
-                self._cur_const_mode = self._param_state[':BATTERY:MODE'].title()
-            case 'OCPT':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in OCP mode, but it
-                # doesn't allow us to SWITCH TO the OCP mode!
-                self._inst.write(':OCP:FUNC')
-                self._param_state[':FUNCTION:MODE'] = 'OCP'
-                self._cur_const_mode = None
-            case 'OPPT':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in OPP mode, but it
-                # doesn't allow us to SWITCH TO the OCP mode!
-                self._inst.write(':OPP:FUNC')
-                self._param_state[':FUNCTION:MODE'] = 'OPP'
-                self._cur_const_mode = None
-
-        # Changing the mode turns off the load and short
-        # We have to do this manually in order for the later mode change to take effect
-        self._update_load_state(0)
-        self._update_short_state(0)
-
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_dynamic_mode(self):
-        if self._disable_callbacks:
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-
-        self._cur_dynamic_mode = rb.wid
-
-        # Changing the mode turns off the load and short
-        # We have to do this manually in order for the later mode change to take effect
-        self._update_load_state(0)
-        self._update_short_state(0)
-
-        info = self._cur_mode_param_info()
-        mode_name = info['mode_name']
-        new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper(),
-                           f':{mode_name}:TRANSIENT:MODE': rb.wid.upper()}
-
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_const_mode(self):
-        if self._disable_callbacks:
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        self._cur_const_mode = rb.wid
-        if self._cur_overall_mode == 'Basic':
-            new_param_state = {':FUNCTION': self._cur_const_mode.upper()}
-        elif self._cur_overall_mode == 'Dynamic':
-            new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper()}
-            info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
-            mode_name = info['mode_name']
-            self._cur_dynamic_mode = (
-                        self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
-        elif self._cur_overall_mode == 'Battery':
-            new_param_state = {':BATTERY:MODE': self._cur_const_mode}
-
-        # Changing the mode turns off the load and short
-        # We have to do this manually in order for the later mode change to take effect
-        self._update_load_state(0)
-        self._update_short_state(0)
-
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_range(self):
-        if self._disable_callbacks:
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        info = self._cur_mode_param_info()
-        mode_name = info['mode_name']
-        val = rb.wid
-        trans = self._transient_string()
-        if val.endswith('V'):
-            new_param_state = {f':{mode_name}{trans}:VRANGE': val.strip('V')}
-        else:
-            new_param_state = {f':{mode_name}{trans}:IRANGE': val.strip('A')}
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_value_change(self):
-        if self._disable_callbacks:
-            return
-        input = self.sender()
-        mode, scpi = input.wid
-        info = self._cur_mode_param_info()
-        mode_name = info['mode_name']
-        val = float(input.value())
-        new_param_state = {f':{mode_name}:{scpi}': val}
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_short_enable(self):
-        if self._disable_callbacks:
-            return
-        self._update_short_onoff_button(None)
-        cb = self.sender()
-        if not cb.isChecked():
-            self._update_short_onoff_button(None)
-        else:
-            self._update_short_state(0) # Also updates the button
-
-    def _on_click_short_on_off(self):
-        if self._disable_callbacks:
-            return
-        bt = self.sender()
-        state = 1-self._param_state[':SHORT:STATE']
-        self._update_short_state(state)
-
-    def _on_click_load_on_off(self):
-        if self._disable_callbacks:
-            return
-        bt = self.sender()
-        state = 1-self._param_state[':INPUT:STATE']
-        self._update_load_state(state)
-
-    def _on_click_trigger_source(self):
-        if self._disable_callbacks:
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        new_param_state = {':TRIGGER:SOURCE': rb.mode.upper()}
-        self._update_param_state_and_inst(new_param_state)
-        self._update_trigger_buttons()
-
-    def _on_click_trigger(self):
-        if self._disable_callbacks:
-            return
-        self._inst.trg()
-
-    def _on_click_enable_measurements(self):
-        if self._disable_callbacks:
-            return
-        cb = self.sender()
-        match cb.mode:
-            case 'V':
-                self._enable_measurement_v = cb.isChecked()
-            case 'C':
-                self._enable_measurement_c = cb.isChecked()
-            case 'P':
-                self._enable_measurement_p = cb.isChecked()
-            case 'R':
-                self._enable_measurement_r = cb.isChecked()
-
-    def _on_click_reset_batt_test(self):
-        self._inst.write(':BATT:ADDCAP 0')
-        self._reset_batt_log()
-
-    def _update_load_onoff_button(self, state=None):
-        if state is None:
-            state = self._param_state[':INPUT:STATE']
-        bt = self._widget_registry['LoadONOFF']
-        if state:
-            if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
-                bt.setText('STOP TEST')
-            else:
-                bt.setText('LOAD IS ON')
-            bg_color = '#ffc0c0'
-        else:
-            if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
-                bt.setText('START TEST')
-            else:
-                bt.setText('LOAD IS OFF')
-            bg_color = '#c0ffb0'
-        ss = f"""QPushButton {{
-                    background-color: {bg_color};
-                    min-width: 7em; max-width: 7em;
-                    min-height: 1em; max-height: 1em;
-                    border-radius: 0.4em; border: 5px solid black;
-                    font-weight: bold; font-size: 22px; }}
-                 QPushButton:pressed {{ border: 7px solid black; }}
-              """
-        bt.setStyleSheet(ss)
-
-    def _update_short_onoff_button(self, state=None):
-        if state is None:
-            state = self._param_state[':SHORT:STATE']
-        bt = self._widget_registry['ShortONOFF']
-        if state:
-            bt.setText('\u26A0 SHORT IS ON \u26A0')
-            bg_color = '#ff0000'
-        else:
-            bt.setText('SHORT IS OFF')
-            bg_color = '#00ff00'
-        ss = f"""QPushButton {{
-                    background-color: {bg_color};
-                    min-width: 7.5em; max-width: 7.5em; min-height: 1.1em; max-height: 1.1em;
-                    border-radius: 0.3em; border: 3px solid black;
-                    font-weight: bold; font-size: 14px; }}
-                 QPushButton::pressed {{ border: 4px solid black; }}
-              """
-        bt.setStyleSheet(ss)
-        if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
-            self._widget_registry['ShortONOFFEnable'].setEnabled(False)
-            self._widget_registry['ShortONOFF'].setEnabled(False)
-        elif self._widget_registry['ShortONOFFEnable'].isChecked():
-            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
-            self._widget_registry['ShortONOFF'].setEnabled(True)
-        else:
-            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
-            self._widget_registry['ShortONOFF'].setEnabled(False)
-
-    def _update_trigger_buttons(self):
-        src = self._param_state[':TRIGGER:SOURCE']
-        self._widget_registry['Trigger_Bus'].setChecked(src == 'BUS')
-        self._widget_registry['Trigger_Man'].setChecked(src == 'MANUAL')
-        self._widget_registry['Trigger_Ext'].setChecked(src == 'EXTERNAL')
-
-        enabled = False
-        if (self._cur_overall_mode == 'Dynamic' and
-            self._cur_dynamic_mode != 'Continuous' and
-            src == 'Bus' and
-            self._param_state[':INPUT:STATE']):
-            enabled = True
-        self._widget_registry['Trigger'].setEnabled(enabled)
 
 
 ##########################################################################################
@@ -1896,142 +1966,6 @@ class InstrumentSiglentSDL1000(Device4882):
 
 
 """
-# [:SOURce]:CURRent[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
-# [:SOURce]:CURRent[:LEVel][:IMMediate]?
-# [:SOURce]:CURRent:IRANGe <value>
-# [:SOURce]:CURRent:IRANGe?
-# [:SOURce]:CURRent:VRANGe <value>
-# [:SOURce]:CURRent:VRANGe?
-# [:SOURce]:CURRent:SLEW[:BOTH] {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:SLEW:POSitive {<value> | MINimum |MAXimum | DEFault}
-# [:SOURce]:CURRent:SLEW:POSitive?
-# [:SOURce]:CURRent:SLEW:NEGative {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:SLEW:NEGative?
-# [:SOURce]:CURRent:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-# [:SOURce]:CURRent:TRANsient:MODE?
-# [:SOURce]:CURRent:TRANsient:IRANGe
-# [:SOURce]:CURRent:TRANsient:IRANGe?
-# [:SOURce]:CURRent:TRANsient:VRANGe
-# [:SOURce]:CURRent:TRANsient:VRANGe?
-# [:SOURce]:CURRent:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:TRANsient:ALEVel?
-# [:SOURce]:CURRent:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:TRANsient:BLEVel?
-# [:SOURce]:CURRent:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:TRANsient:AWIDth?
-# [:SOURce]:CURRent:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:TRANsient:BWIDth?
-# [:SOURce]:CURRent:TRANsient:SLEW:POSitive {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:TRANsient:SLEW:POSitive?
-# [:SOURce]:CURRent:TRANsient:SLEW:NEGative {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:CURRent:TRANsient:SLEW:NEGative?
-
-# [:SOURce]:VOLTage[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
-# [:SOURce]:VOLTage[:LEVel][:IMMediate]?
-# [:SOURce]:VOLTage:IRANGe <value>
-# [:SOURce]:VOLTage:IRANGe?
-# [:SOURce]:VOLTage:VRANGe <value>
-# [:SOURce]:VOLTage:VRANGe?
-# [:SOURce]:VOLTage:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-# [:SOURce]:VOLTage:TRANsient:MODE?
-# [:SOURce]:VOLTage:TRANsient:IRANGe
-# [:SOURce]:VOLTage:TRANsient:IRANGe?
-# [:SOURce]:VOLTage:TRANsient:VRANGe
-# [:SOURce]:VOLTage:TRANsient:VRANGe?
-# [:SOURce]:VOLTage:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:VOLTage:TRANsient:ALEVel?
-# [:SOURce]:VOLTage:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:VOLTage:TRANsient:BLEVel?
-# [:SOURce]:VOLTage:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:VOLTage:TRANsient:AWIDth?
-# [:SOURce]:VOLTage:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:VOLTage:TRANsient:BWIDth?
-
-# [:SOURce]:POWer[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
-# [:SOURce]:POWer[:LEVel][:IMMediate]?
-# [:SOURce]:POWer:IRANGe <value>
-# [:SOURce]:POWer:IRANGe?
-# [:SOURce]:POWer:VRANGe <value>
-# [:SOURce]:POWer:VRANGe?
-# [:SOURce]:POWer:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-# [:SOURce]:POWer:TRANsient:MODE?
-# [:SOURce]:POWer:TRANsient:IRANGe
-# [:SOURce]:POWer:TRANsient:IRANGe?
-# [:SOURce]:POWer:TRANsient:VRANGe
-# [:SOURce]:POWer:TRANsient:VRANGe?
-# [:SOURce]:POWer:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:POWer:TRANsient:ALEVel?
-# [:SOURce]:POWer:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:POWer:TRANsient:BLEVel?
-# [:SOURce]:POWer:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:POWer:TRANsient:AWIDth?
-# [:SOURce]:POWer:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:POWer:TRANsient:BWIDth?
-
-# [:SOURce]:RESistance[:LEVel][:IMMediate] {<value> | MINimum| MAXimum | DEFault}
-# [:SOURce]:RESistance[:LEVel][:IMMediate]?
-# [:SOURce]:RESistance:IRANGe <value>
-# [:SOURce]:RESistance:IRANGe?
-# [:SOURce]:RESistance:VRANGe <value>
-# [:SOURce]:RESistance:VRANGe?
-# [:SOURce]:RESistance:RRANGe {LOW | MIDDLE | HIGH | UPPER}
-# [:SOURce]:RESistance:RRANGe?
-# [:SOURce]:RESistance:TRANsient:MODE {CONTinuous | PULSe |TOGGle}
-# [:SOURce]:RESistance:TRANsient:MODE?
-# [:SOURce]:RESistance:TRANsient:IRANGe
-# [:SOURce]:RESistance:TRANsient:IRANGe?
-# [:SOURce]:RESistance:TRANsient:VRANGe
-# [:SOURce]:RESistance:TRANsient:VRANGe?
-# [:SOURce]:RESistance:TRANsient:RRANGe {LOW | MIDDLE | HIGH | UPPER}
-# [:SOURce]:RESistance:TRANsient:RRANGe?
-# [:SOURce]:RESistance:TRANsient:ALEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:RESistance:TRANsient:ALEVel?
-# [:SOURce]:RESistance:TRANsient:BLEVel {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:RESistance:TRANsient:BLEVel?
-# [:SOURce]:RESistance:TRANsient:AWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:RESistance:TRANsient:AWIDth?
-# [:SOURce]:RESistance:TRANsient:BWIDth {<value> | MINimum | MAXimum | DEFault}
-# [:SOURce]:RESistance:TRANsient:BWIDth?
-
-# [:SOURce]:LED:IRANGe
-# [:SOURce]:LED:IRANGe?
-# [:SOURce]:LED:VRANGe
-# [:SOURce]:LED:VRANGe?
-# [:SOURce]:LED:VOLTage {< value > | MINimum | MAXimum | DEFault}
-# [:SOURce]:LED:VOLTage?
-# [:SOURce]:LED:CURRent {< value > | MINimum | MAXimum | DEFault}
-# [:SOURce]:LED:CURRent?
-# [:SOURce]:LED: RCOnf {< value > | MINimum | MAXimum | DEFault}
-# [:SOURce]:LED: RCOnf?
-
-[:SOURce]:BATTery:FUNC
-[:SOURce]:BATTery:FUNC?
-[:SOURce]:BATTery:MODE {CURRent | POWer | RESistance}
-[:SOURce]:BATTery:MODE?
-[:SOURce]:BATTery:IRANGe <value>
-[:SOURce]:BATTery:IRANGe?
-[:SOURce]:BATTery:VRANGe <value>
-[:SOURce]:BATTery:VRANGe?
-[:SOURce]:BATTery:RRANGe {LOW | MIDDLE | HIGH | UPPER}
-[:SOURce]:BATTery:RRANGe?
-[:SOURce]:BATTery:LEVel <value>
-[:SOURce]:BATTery:LEVel?
-[:SOURce]:BATTery:VOLTage <value > | MINimum | MAXimum | DEFault}
-[:SOURce]:BATTery:VOLTage?
-[:SOURce]:BATTery:CAPability <value>
-[:SOURce]:BATTery:CAPability?
-[:SOURce]:BATTery:TIMer?
-[:SOURce]:BATTery:VOLTage:STATe {ON | OFF | 0 | 1}
-[:SOURce]:BATTery:VOLTage:STATe?
-[:SOURce]:BATTery:CAPability:STATe {ON | OFF | 0 | 1}
-[:SOURce]:BATTery:CAPability:STATe?
-[:SOURce]:BATTery:TIMer:STATe
-[:SOURce]:BATTery:TIMer:STATe {ON | OFF | 0 | 1}
-[:SOURce]:BATTery:TIMer:STATe?
-[:SOURce]:BATTery:DISCHArg:CAPability?
-[:SOURce]:BATTery:DISCHArg:TIMer?
-
-
 [:SOURce]:LIST:MODE {CURRent | VOLTage | POWer | RESistance}
 [:SOURce]:LIST:MODE?
 [:SOURce]:LIST:IRANGe <value>
@@ -2052,47 +1986,6 @@ class InstrumentSiglentSDL1000(Device4882):
 [:SOURce]:LIST:WIDth?
 [:SOURce]:LIST:STATe:ON
 [:SOURce]:LIST:STATe?
-
-# [:SOURce]:OCP:FUNC
-# [:SOURce]:OCP:FUNC?
-# [:SOURce]:OCP:IRANGe?
-# [:SOURce]:OCP:VRANGe <value>
-# [:SOURce]:OCP:VRANGe?
-# [:SOURce]:OCP:STARt {< value: float,int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:STARt?
-# [:SOURce]:OCP:STEP {< value: float?, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:STEP?
-# [:SOURce]:OCP:STEP:DELay {< value: float, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:STEP:DELay?
-# [:SOURce]:OCP:END {< value > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:END?
-# [:SOURce]:OCP:MIN {< value: float,int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:MIN?
-# [:SOURce]:OCP:MAX {< value: float, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:MAX?
-# [:SOURce]:OCP:VOLTage <value: float, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OCP:VOLTage?
-
-# [:SOURce]:OPP:FUNC
-# [:SOURce]:OPP:FUNC?
-# [:SOURce]:OPP:IRANGe?
-# [:SOURce]:OPP:VRANGe <value>
-# [:SOURce]:OPP:VRANGe?
-# [:SOURce]:OPP:STARt {< value: float,int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:STARt?
-# [:SOURce]:OPP:STEP {< value: float?, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:STEP?
-# [:SOURce]:OPP:STEP:DELay {< value: float, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:STEP:DELay?
-# [:SOURce]:OPP:END {< value > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:END?
-# [:SOURce]:OPP:MIN {< value: float,int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:MIN?
-# [:SOURce]:OPP:MAX {< value: float, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:MAX?
-# [:SOURce]:OPP:VOLTage <value: float, int > | MINimum | MAXimum | DEFault}
-# [:SOURce]:OPP:VOLTage?
-
 
 [:SOURce]:PROGram:STEP {< number > | MINimum | MAXimum | DEFault}
 [:SOURce]:PROGram:STEP?
