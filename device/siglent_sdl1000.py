@@ -140,7 +140,9 @@ _SDL_OVERALL_MODES = {
 #   'params'        A list of parameters active in this mode. Each entry is
 #                   constructed as follows:
 #       0) The SCPI base command. The 'mode_name', if any, will be prepended to give,
-#          e.g. ":VOLTAGE:IRANGE"
+#          e.g. ":VOLTAGE:IRANGE". If there two SCPI commands in a tuple, the second
+#          is a boolean value that is always kept in sync with the first one. If the
+#          first value is zero, the second value is False.
 #       1) The type of the parameter. Options are '.Xf' for a float with a given
 #          number of decimal places, 'd' for an integer, 'b' for a Boolean
 #          (treated the same as 'd' for now), 's' for an arbitrary string,
@@ -238,36 +240,45 @@ _SDL_MODE_PARAMS = {
         {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
          'mode_name': 'BATTERY',
          'params': (
-            ('IRANGE',    'r', None, 'Range_Current_.*'),
-            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',   '.3f', 'MainParametersLabel_BATTC', 'MainParameters_BATTC', 0, 'C'),
-            ('VOLTAGE', '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
-            ('CAP',       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
-            ('TIMER',     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
+            ('IRANGE',            'r', None, 'Range_Current_.*'),
+            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
+            ('LEVEL',           '.3f', 'MainParametersLabel_BATTC', 'MainParameters_BATTC', 0, 'C'),
+            (('VOLTAGE',
+              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+            (('CAP',
+              'CAP:STATE'),       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+            (('TIMER',
+              'TIMER:STATE'),     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
           )
         },
     ('Battery', 'Power'):
         {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
          'mode_name': 'BATTERY',
          'params': (
-            ('IRANGE',    'r', None, 'Range_Current_.*'),
-            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',   '.3f', 'MainParametersLabel_BATTP', 'MainParameters_BATTP', 0, 'P'),
-            ('VOLTAGE', '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
-            ('CAP',       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
-            ('TIMER',     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
+            ('IRANGE',            'r', None, 'Range_Current_.*'),
+            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
+            ('LEVEL',           '.3f', 'MainParametersLabel_BATTP', 'MainParameters_BATTP', 0, 'P'),
+            (('VOLTAGE',
+              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+            (('CAP',
+              'CAP:STATE'),       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+            (('TIMER',
+              'TIMER:STATE'),     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
           )
         },
     ('Battery', 'Resistance'):
         {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
          'mode_name': 'BATTERY',
          'params': (
-            ('IRANGE',    'r', None, 'Range_Current_.*'),
-            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',   '.3f', 'MainParametersLabel_BATTR', 'MainParameters_BATTR', 0.030, 10000),
-            ('VOLTAGE', '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
-            ('CAP',       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
-            ('TIMER',     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
+            ('IRANGE',          'r', None, 'Range_Current_.*'),
+            ('VRANGE',          'r', None, 'Range_Voltage_.*'),
+            ('LEVEL',           '.3f', 'MainParametersLabel_BATTR', 'MainParameters_BATTR', 0.030, 10000),
+            (('VOLTAGE',
+              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+            (('CAP',
+              'CAP:STATE'),       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+            (('TIMER',
+              'TIMER:STATE'),     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
           )
         },
     ('Dynamic', 'Voltage', 'Continuous'):
@@ -497,11 +508,13 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._param_state = {} # Start with a blank slate
         for mode, info in _SDL_MODE_PARAMS.items():
             for param_spec in info['params']:
-                param = self._scpi_cmd_from_param_info(info, param_spec)
-                if param in self._param_state:
+                param0, param1 = self._scpi_cmds_from_param_info(info, param_spec)
+                if param0 in self._param_state:
                     # Sub-modes often ask for the same data, no need to retrieve it twice
+                    # And we will have already taken care of param1 the previous time
+                    # as well
                     continue
-                val = self._inst.query(f'{param}?')
+                val = self._inst.query(f'{param0}?')
                 param_type = param_spec[1][-1]
                 match param_type:
                     case 'f': # Float
@@ -512,7 +525,19 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                         val = val.upper()
                     case _:
                         assert False, f'Unknown param_type {param_type}'
-                self._param_state[param] = val
+                self._param_state[param0] = val
+                if param1 is not None:
+                    # A Boolean flag associated with param0
+                    # We let the flag override the previous value
+                    val1 = int(float(self._inst.query(f'{param1}?')))
+                    self._param_state[param1] = val1
+                    if not val1 and self._param_state[param0] != 0:
+                        if param_type == 'f':
+                            self._param_state[param0] = 0.
+                        else:
+                            self._param_state[param0] = 0
+                        self._inst.write(f'{param0} 0')
+
         # Set things like _cur_overall_mode and _cur_const_mode and update widgets
         self._update_state_from_param_state()
 
@@ -528,8 +553,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             for param_spec in info['params']:
                 if not param_spec[2]:
                     continue # This captures the General True/False flag
-                param = self._scpi_cmd_from_param_info(info, param_spec)
-                if param in set_params:
+                param0, param1 = self._scpi_cmds_from_param_info(info, param_spec)
+                if param0 in set_params:
                     # Sub-modes often ask for the same data, no need to retrieve it twice
                     continue
                 set_params.add(param)
@@ -538,8 +563,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     # We have to put the instrument in the correct mode before setting
                     # the parameters. Not necessary for "General" (mode_name None).
                     self._put_inst_in_mode(mode[0], mode[1])
-                val = self._param_state[param]
-                self._update_one_param_on_inst(param, val)
+                self._update_one_param_on_inst(param, self._param_state[param0])
+                if param1 is not None:
+                    self._update_one_param_on_inst(param, self._param_state[param0])
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
@@ -1373,6 +1399,11 @@ Copyright 2022, Robert S. French"""
         else:
             val = int(val)
         new_param_state = {f':{mode_name}:{scpi}': val}
+        # Check for special case of associated boolean flag
+        param1 = f':{mode_name}:{scpi}:STATE'
+        if param1 in self._param_state:
+            print(val)
+            new_param_state[param1] = int(val != 0)
         self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
@@ -1509,7 +1540,7 @@ Copyright 2022, Robert S. French"""
 
     def _on_click_reset_batt_test(self):
         """Handle clicking on the reset battery log button."""
-        self._inst.write(':BATT:ADDCAP 0')
+        self._inst.write(':BATTERY:ADDCAP 0')
         self._reset_batt_log()
 
 
@@ -1523,14 +1554,16 @@ Copyright 2022, Robert S. French"""
             return ':TRANSIENT'
         return ''
 
-    def _scpi_cmd_from_param_info(self, param_info, param_spec):
+    def _scpi_cmds_from_param_info(self, param_info, param_spec):
         """Create a SCPI command from a param_info structure."""
         mode_name = param_info['mode_name']
         if mode_name is None: # General parameters
             mode_name = ''
         else:
             mode_name = f':{mode_name}'
-        return f'{mode_name}:{param_spec[0]}'
+        if isinstance(param_spec[0], (tuple, list)):
+            return f'{mode_name}:{param_spec[0][0]}', f'{mode_name}:{param_spec[0][1]}'
+        return f'{mode_name}:{param_spec[0]}', None
 
     def _put_inst_in_mode(self, overall_mode, const_mode):
         """Place the SDL in the given overall mode (and const mode)."""
@@ -1620,7 +1653,7 @@ Copyright 2022, Robert S. French"""
                 # computation and update it here.
                 disch_cap = self._inst.measure_battery_capacity()
                 add_cap = self._inst.measure_battery_add_capacity()
-                self._inst.write(f':BATT:ADDCAP {disch_cap + add_cap}')
+                self._inst.write(f':BATTERY:ADDCAP {disch_cap + add_cap}')
                 # Update the battery log entries
                 if self._load_on_time is not None and self._load_off_time is not None:
                     match self._cur_const_mode:
@@ -1633,14 +1666,18 @@ Copyright 2022, Robert S. French"""
                                                                         ':BATTERY:LEVEL']
                     self._batt_log_modes.append(batt_mode)
                     stop_cond = ''
-                    stop_cond += 'Vmin %.3fV' % self._param_state[':BATTERY:VOLTAGE']
-                    if stop_cond != '':
-                        stop_cond += ' or '
-                    stop_cond += 'Cap %.3fAh' % (self._param_state[':BATTERY:CAP']/1000)
-                    if stop_cond != '':
-                        stop_cond += ' or '
-                    stop_cond += 'Time '+self._time_to_hms(
-                                            int(self._param_state[':BATTERY:TIMER']))
+                    if self._param_state[':BATTERY:VOLTAGE:STATE']:
+                        stop_cond += 'Vmin %.3fV' % self._param_state[':BATTERY:VOLTAGE']
+                    if self._param_state[':BATTERY:CAP:STATE']:
+                        if stop_cond != '':
+                            stop_cond += ' or '
+                        stop_cond += 'Cap %.3fAh' % (self._param_state[':BATTERY:CAP']/
+                                                                                    1000)
+                    if self._param_state[':BATTERY:TIMER:STATE']:
+                        if stop_cond != '':
+                            stop_cond += ' or '
+                        stop_cond += 'Time '+self._time_to_hms(
+                                                int(self._param_state[':BATTERY:TIMER']))
                     if stop_cond == '':
                         self._batt_log_stop_cond.append('None')
                     else:
@@ -1727,6 +1764,9 @@ Copyright 2022, Robert S. French"""
         mode_name = param_info['mode_name']
         new_param_state = {}
         for scpi_cmd, param_full_type, *rest in params:
+            if isinstance(scpi_cmd, (tuple, list)):
+                # Ignore the boolean flag
+                scpi_cmd = scpi_cmd[0]
             param_type = param_full_type[-1]
 
             # Parse out the label and main widget REs and the min/max values
@@ -1883,7 +1923,7 @@ Copyright 2022, Robert S. French"""
     def _time_to_hms(t):
         m, s = divmod(t, 60)
         h, m = divmod(m, 60)
-        return '%d:%02d:%02d' % (h, m, s)
+        return '%02d:%02d:%02d' % (h, m, s)
 
     def _batt_log_report(self):
         n_entries = len(self._batt_log_start_times)
@@ -1979,13 +2019,13 @@ class InstrumentSiglentSDL1000(Device4882):
         return float(self.query('MEAS:RES?'))
 
     def measure_battery_time(self):
-        return float(self.query(':BATT:DISCHA:TIMER?'))
+        return float(self.query(':BATTERY:DISCHA:TIMER?'))
 
     def measure_battery_capacity(self):
-        return float(self.query(':BATT:DISCHA:CAP?'))
+        return float(self.query(':BATTERY:DISCHA:CAP?'))
 
     def measure_battery_add_capacity(self):
-        return float(self.query(':BATT:ADDCAP?'))
+        return float(self.query(':BATTERY:ADDCAP?'))
 
     def measure_vcpr(self):
         return (self.measure_voltage(),
