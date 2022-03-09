@@ -154,10 +154,12 @@ _SDL_OVERALL_MODES = {
 #          checked.
 #       4) For numerical widgets ('d' and 'f'), the minimum allowed value.
 #       5) For numerical widgets ('d' and 'f'), the maximum allowed value.
-#           For 4 and 5, the min/max can be a constant number of a special
+#           For 4 and 5, the min/max can be a constant number or a special
 #           character. 'C' means the limits of the CURRENT RANGE. 'V' means the
 #           limits of the VOLTAGE RANGE. 'P' means the limits of power based
-#           on the SDL model number (200W or 300W).
+#           on the SDL model number (200W or 300W). It can also be 'W:<widget_name>'
+#           which means to retrieve the value of that widget; this is useful for
+#           min/max pairs.
 # The "General" entry is a little special, since it doesn't pertain to a particular
 # mode combination. It is used as an addon to all other modes.
 _SDL_MODE_PARAMS = {
@@ -426,12 +428,12 @@ _SDL_MODE_PARAMS = {
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
             ('VOLTAGE',    '.3f', 'MainParametersLabel_OCPV', 'MainParameters_OCPV', 0, 'V'),
-            ('START',      '.3f', 'MainParametersLabel_OCPSTART', 'MainParameters_OCPSTART', 0, 'C'), # END XXX
-            ('END',        '.3f', 'MainParametersLabel_OCPEND', 'MainParameters_OCPEND', 0, 'C'), # START XXX
+            ('START',      '.3f', 'MainParametersLabel_OCPSTART', 'MainParameters_OCPSTART', 0, 'W:MainParameters_OCPEND'),
+            ('END',        '.3f', 'MainParametersLabel_OCPEND', 'MainParameters_OCPEND', 'W:MainParameters_OCPSTART', 'C'),
             ('STEP',       '.3f', 'MainParametersLabel_OCPSTEP', 'MainParameters_OCPSTEP', 0, 'C'),
             ('STEP:DELAY', '.3f', 'MainParametersLabel_OCPDELAY', 'MainParameters_OCPDELAY', 0.001, 999),
-            ('MIN',        '.3f', 'AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 0, 'C'), # MAX XXX
-            ('MAX',        '.3f', 'AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 0, 'C'), # MIN XXX
+            ('MIN',        '.3f', 'AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 0, 'W:AuxParameters_OCPMAX'),
+            ('MAX',        '.3f', 'AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 'W:AuxParameters_OCPMIN', 'C'),
           )
         },
     ('OPPT', None):
@@ -441,12 +443,12 @@ _SDL_MODE_PARAMS = {
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
             ('VOLTAGE',    '.3f', 'MainParametersLabel_OPPV', 'MainParameters_OPPV', 0, 'V'),
-            ('START',      '.2f', 'MainParametersLabel_OPPSTART', 'MainParameters_OPPSTART', 0, 'P'), # END XXX
-            ('END',        '.2f', 'MainParametersLabel_OPPEND', 'MainParameters_OPPEND', 0, 'P'), # START XXX
+            ('START',      '.2f', 'MainParametersLabel_OPPSTART', 'MainParameters_OPPSTART', 0, 'W:MainParameters_OPPEND'),
+            ('END',        '.2f', 'MainParametersLabel_OPPEND', 'MainParameters_OPPEND', 'W:MainParameters_OPPSTART', 'P'),
             ('STEP',       '.2f', 'MainParametersLabel_OPPSTEP', 'MainParameters_OPPSTEP', 0, 'P'),
             ('STEP:DELAY', '.3f', 'MainParametersLabel_OPPDELAY', 'MainParameters_OPPDELAY', 0.001, 999),
-            ('MIN',        '.3f', 'AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 0, 'P'), # MAX XXX
-            ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 0, 'P'), # MIN XXX
+            ('MIN',        '.3f', 'AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 0, 'W:AuxParameters_OPPMAX'),
+            ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 'W:AuxParameters_OPPMIN', 'P'),
           )
         },
 }
@@ -848,9 +850,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     ('Current',     'BATTC',       'A',      'LEVEL'),
                     ('Power',       'BATTP',       'W',      'LEVEL'),
                     ('Resistance',  'BATTR',       '\u2126', 'LEVEL'),
-                    ('V Stop',      'BATTVSTOP',   'V',      'VOLTAGE'),
-                    ('Cap Stop',    'BATTCAPSTOP', 'mAh',    'CAP'),
-                    ('Time Stop',   'BATTTSTOP',   's',      'TIMER'),
+                    ('*V Stop',      'BATTVSTOP',   'V',      'VOLTAGE'),
+                    ('*Cap Stop',    'BATTCAPSTOP', 'mAh',    'CAP'),
+                    ('*Time Stop',   'BATTTSTOP',   's',      'TIMER'),
                     ('Von',         'OCPV',        'V',      'VOLTAGE'),
                     ('I Start',     'OCPSTART',    'A',      'START'),
                     ('I End',       'OCPEND',      'A',      'END'),
@@ -1083,11 +1085,18 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         widget_prefix = title.replace(' ', '')
         layoutv = QVBoxLayout(frame)
         for (display, param_name, unit, scpi) in details:
+            disabled_ok = False
+            if display[0] == '*':
+                # Special indicator that "0" means "Disabled"
+                disabled_ok = True
+                display = display[1:]
             layouth = QHBoxLayout()
             label = QLabel(display+':')
             layouth.addWidget(label)
             input = QDoubleSpinBox()
             input.wid = (param_name, scpi)
+            if disabled_ok:
+                input.setSpecialValueText('Disabled')
             input.setAlignment(Qt.AlignmentFlag.AlignRight)
             input.setDecimals(3)
             input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
@@ -1359,7 +1368,7 @@ Copyright 2022, Robert S. French"""
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
         val = input.value()
-        if '.' in val:
+        if input.decimals() > 0:
             val = float(input.value())
         else:
             val = int(val)
@@ -1469,12 +1478,11 @@ Copyright 2022, Robert S. French"""
         self._widget_registry['Trigger_Ext'].setChecked(src == 'EXTERNAL')
 
         enabled = False
-        if ((self._cur_overall_mode == 'Dynamic' and
-             self._cur_dynamic_mode != 'Continuous' and
-             src == 'Bus' and
-             self._param_state[':INPUT:STATE']) or
-            self._cur_overall_mode in ('List', 'Program') and
-             src == 'Bus')):
+        if (src == 'Bus' and
+            self._param_state[':INPUT:STATE'] and
+            (self._cur_overall_mode == 'Dynamic' and
+             self._cur_dynamic_mode != 'Continuous') or
+            self._cur_overall_mode in ('List', 'Program')):
             enabled = True
         self._widget_registry['Trigger'].setEnabled(enabled)
 
@@ -1585,7 +1593,12 @@ Copyright 2022, Robert S. French"""
                     'Current', 'Power', 'Resistance'), self._cur_const_mode
 
         # Now update all the widgets and their values with the new info
-        self._update_widgets()
+        # This is a bit of a hack - first do all the widgets ignoring the min/max
+        # value limits, which allows us to actually initialize all the values. Then
+        # go back and do the same thing again, this time setting the min/max values.
+        # It's not very efficient, but it doesn't matter.
+        self._update_widgets(minmax_ok=False)
+        self._update_widgets(minmax_ok=True)
 
     def _update_load_state(self, state, update_inst=True):
         """Update the load on/off internal state, possibly updating the instrument."""
@@ -1677,7 +1690,7 @@ Copyright 2022, Robert S. French"""
                         self._widget_registry[trial_widget].setEnabled(True)
                         self._widget_registry[trial_widget].show()
 
-    def _update_widgets(self):
+    def _update_widgets(self, minmax_ok=True):
         """Update all parameter widgets with the current _param_state values."""
         if self._cur_overall_mode is None:
             return
@@ -1727,18 +1740,35 @@ Copyright 2022, Robert S. French"""
                     trans = self._transient_string()
                     if min_val in ('C', 'V', 'P'):
                         min_val = 0
-                    match max_val:
-                        case 'C': # Based on current range selection (5A, 30A)
-                            max_val = self._param_state[f':{mode_name}{trans}:IRANGE']
-                            max_val = float(max_val)
-                        case 'V': # Based on voltage range selection (36V, 150V)
-                            max_val = self._param_state[f':{mode_name}{trans}:VRANGE']
-                            max_val = float(max_val)
-                        case 'P': # Based on SDL model - SDL1020 is 200W, SDL1030 is 300W
-                            if self._inst._high_power:
-                                max_val = 300
-                            else:
-                                max_val = 200
+                    elif isinstance(min_val, str) and min_val.startswith('W:'):
+                        if minmax_ok:
+                            # This is needed because when we're first loading up the
+                            # widgets from a cold start, the paired widget may not
+                            # have a good min value yet
+                            min_val = self._widget_registry[min_val[2:]].value()
+                        else:
+                            min_val = 0
+                    if isinstance(max_val, str):
+                        match max_val[0]:
+                            case 'C': # Based on current range selection (5A, 30A)
+                                max_val = self._param_state[f':{mode_name}{trans}:IRANGE']
+                                max_val = float(max_val)
+                            case 'V': # Based on voltage range selection (36V, 150V)
+                                max_val = self._param_state[f':{mode_name}{trans}:VRANGE']
+                                max_val = float(max_val)
+                            case 'P': # SDL1020 is 200W, SDL1030 is 300W
+                                if self._inst._high_power:
+                                    max_val = 300
+                                else:
+                                    max_val = 200
+                            case 'W':
+                                if minmax_ok:
+                                    # This is needed because when we're first loading up
+                                    # the widgets from a cold start, the paired widget
+                                    # may not have a good max value yet
+                                    max_val = self._widget_registry[max_val[2:]].value()
+                                else:
+                                    max_val = 1000000000
                 case _:
                     assert False, f'Unknown widget parameters {rest}'
 
@@ -1765,11 +1795,15 @@ Copyright 2022, Robert S. French"""
                         new_param_state[f':{mode_name}:{scpi_cmd}'] = float(widget.value())
                 case 'f': # Floating point
                     assert param_full_type[0] == '.'
-                    widget.setDecimals(int(param_full_type[1:-1]))
+                    dec = int(param_full_type[1:-1])
+                    dec10 = 10 ** dec
+                    widget.setDecimals(dec)
                     widget.setValue(val)
                     # It's possible that setting the minimum or maximum caused the value
                     # to change, which means we need to update our state.
-                    if val != float(widget.value()):
+                    # Note floating point comparison isn't precise so we only look to
+                    # the precision of the number of decimals.
+                    if int(val*dec10+.5) != int(widget.value()*dec10+.5):
                         new_param_state[f':{mode_name}:{scpi_cmd}'] = float(widget.value())
                 case 'r': # Radio button
                     # In this case only the widget_main is an RE
