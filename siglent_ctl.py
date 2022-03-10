@@ -27,7 +27,6 @@ import time
 import matplotlib.pyplot as plt
 import pandas as pd
 import pyqtgraph as pg
-import pyvisa
 
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QGridLayout
 from PyQt6.QtGui import QIcon
@@ -36,10 +35,11 @@ from PyQt6.QtCore import pyqtSlot, QTimer
 from data_stream import DataStream
 # from device.siglent_sdl import InstrumentSiglentSDL
 import device
+from main_window import MainWindow
 
-def update():
-    measurements = config_widget.update_measurements()
-    print(measurements)
+# def update():
+    # measurements = config_widget.update_measurements()
+    # print(measurements)
     # stream_v.record_value(inst.measure_voltage())
     # stream_i.record_value(inst.measure_current())
     # # stream_p.record_value(inst.measure_power())
@@ -51,15 +51,16 @@ def update():
     # # pdi_r.setData(stream_r.values)
 
 app = QApplication(sys.argv)
+main_window = MainWindow(app)
+main_window.show()
 
-rm = pyvisa.ResourceManager()
-# inst = InstrumentSiglentSDL(rm, 'TCPIP::192.168.0.63')
-inst = device.create_device(rm, 'TCPIP::192.168.0.63')
-inst.set_debug(True)
-
-inst.connect()
-
-config_widget = inst.configure_widget()
+# # inst = InstrumentSiglentSDL(rm, 'TCPIP::192.168.0.63')
+# inst = device.create_device(rm, 'TCPIP::192.168.0.63')
+# inst.set_debug(True)
+#
+# inst.connect()
+#
+# config_widget = inst.configure_widget()
 
 
 # stream_v = DataStream('V')
@@ -67,7 +68,7 @@ config_widget = inst.configure_widget()
 # stream_p = DataStream('P')
 # stream_r = DataStream('R')
 
-config_widget.show()
+# config_widget.show()
 
 # widget = QWidget()
 # layout = QGridLayout()
@@ -84,26 +85,26 @@ config_widget.show()
 # widget.setWindowTitle('Measurement Example')
 # widget.show()
 #
-timer = QTimer(app)
-timer.timeout.connect(update)
-timer.start(1000)
+# timer = QTimer(app)
+# timer.timeout.connect(update)
+# timer.start(10000)
 
 app.exec()
 
 
-df_v = stream_v.to_df()
-df_i = stream_i.to_df()
-df_p = stream_p.to_df()
-df_r = stream_r.to_df()
-
-df = df_v.join((df_i, df_p, df_r))
-
-print(df)
-
-val_v = stream_v.values
-val_i = stream_i.values
-val_p = stream_p.values
-val_r = stream_r.values
+# df_v = stream_v.to_df()
+# df_i = stream_i.to_df()
+# df_p = stream_p.to_df()
+# df_r = stream_r.to_df()
+#
+# df = df_v.join((df_i, df_p, df_r))
+#
+# print(df)
+#
+# val_v = stream_v.values
+# val_i = stream_i.values
+# val_p = stream_p.values
+# val_r = stream_r.values
 
 # textLabel = QLabel(widget)
 # textLabel.setText("Hello World!")
@@ -111,4 +112,4 @@ val_r = stream_r.values
 
 # widget.setGeometry(50,50,320,200)
 
-inst.disconnect()
+# inst.disconnect()

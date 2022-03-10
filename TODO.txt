@@ -1,9 +1,5 @@
 - Current status:
 
-- Cleanup
-
-- Print/save battery report
-- Rename "Bus" trigger to manual?
 
 ** PyInstaller **
 
@@ -13,19 +9,17 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** General **
 
-- Clean up and document code
+- Cleanup from _update_short_state()
+- Add print/save to _printable_text_dialog()
 - Add README file
 - Set "remote off" and disconnect VISA port when configuration window is closed
 - Add error checking to opening resource and other VISA accesses
+- Add menu to change device short name
 
 ** SDL1000 **
 
+- Rename "Bus" trigger to manual?
 - Slew pos/neg have to be in the same "range" 0.001-0.01 or 0.01-0.5
-- Min/max fields need to stay in the proper order
-- Implement Batt mode
-  - Add checkboxes next to V/C/T STOP to enable state and grey out box when unchecked
-- Implement Load/Save Configurations
-- Add menu to change device short name
 - Measure external source
 - Implement List mode
   - Follow along with the steps and highlight rows
