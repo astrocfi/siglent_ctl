@@ -126,7 +126,8 @@ _SDL_OVERALL_MODES = {
     'LED':     ('!Dynamic_Mode_.*', '!Const_.*',),
     'Battery': ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Voltage'),
     'List':    ('!Dynamic_Mode_.*', 'Const_.*',),
-    'Program': ('!Dynamic_Mode_.*', '!Const_.*',),
+    'Program': ('!Dynamic_Mode_.*', '!Const_.*',
+                '!Range_Current_.*', '!Range_Voltage_.*'),
     'OCPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
     'OPPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
 }
@@ -184,6 +185,7 @@ _SDL_MODE_PARAMS = {
             #   BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
             ('FUNCTION:MODE',      's', False),
             ('BATTERY:MODE',       's', True),
+            ('LIST:MODE',          's', True),
             ('TRIGGER:SOURCE',     's', True),
          )
         },
@@ -395,7 +397,6 @@ _SDL_MODE_PARAMS = {
             ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
           )
         },
-
     ('Dynamic', 'Resistance', 'Continuous'):
         {'widgets': None,
          'mode_name': 'RESISTANCE',
@@ -460,6 +461,44 @@ _SDL_MODE_PARAMS = {
             ('STEP:DELAY', '.3f', 'MainParametersLabel_OPPDELAY', 'MainParameters_OPPDELAY', 0.001, 999),
             ('MIN',        '.3f', 'AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 0, 'W:AuxParameters_OPPMAX'),
             ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 'W:AuxParameters_OPPMIN', 'P'),
+          )
+        },
+    ('List', 'Voltage'):
+        {'widgets': None,
+         'mode_name': 'LIST',
+         'params': (
+            ('IRANGE',       'r', None, 'Range_Current_.*'),
+            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+          )
+        },
+    ('List', 'Current'):
+        {'widgets': None,
+         'mode_name': 'LIST',
+         'params': (
+            ('IRANGE',       'r', None, 'Range_Current_.*'),
+            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+          )
+        },
+    ('List', 'Power'):
+        {'widgets': None,
+         'mode_name': 'LIST',
+         'params': (
+            ('IRANGE',       'r', None, 'Range_Current_.*'),
+            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+          )
+        },
+    ('List', 'Resistance'):
+        {'widgets': None,
+         'mode_name': 'LIST',
+         'params': (
+            ('IRANGE',       'r', None, 'Range_Current_.*'),
+            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+          )
+        },
+    ('Program', None):
+        {'widgets': None,
+         'mode_name': 'LIST',
+         'params': (
           )
         },
 }
@@ -1624,6 +1663,10 @@ Copyright 2022, Robert S. French"""
                 self._cur_const_mode = self._param_state[':BATTERY:MODE'].title()
                 assert self._cur_const_mode in (
                     'Current', 'Power', 'Resistance'), self._cur_const_mode
+            case 'List':
+                self._cur_const_mode = self._param_state[':LIST:MODE'].title()
+                assert self._cur_const_mode in (
+                    'Voltage', 'Current', 'Power', 'Resistance'), self._cur_const_mode
 
         # Now update all the widgets and their values with the new info
         # This is a bit of a hack - first do all the widgets ignoring the min/max
@@ -1849,8 +1892,10 @@ Copyright 2022, Robert S. French"""
                     # In this case only the widget_main is an RE
                     for trial_widget in self._widget_registry:
                         if re.fullmatch(widget_main, trial_widget):
+                            widget = self._widget_registry[trial_widget]
+                            widget.setEnabled(True)
                             checked = trial_widget.upper().endswith('_'+str(val).upper())
-                            self._widget_registry[trial_widget].setChecked(checked)
+                            widget.setChecked(checked)
                 case _:
                     assert False, f'Unknown param type {param_type}'
 
