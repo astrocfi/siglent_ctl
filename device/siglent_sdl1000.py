@@ -596,15 +596,15 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 if param0 in set_params:
                     # Sub-modes often ask for the same data, no need to retrieve it twice
                     continue
-                set_params.add(param)
+                set_params.add(param0)
                 if first_write and info['mode_name']:
                     first_write = False
                     # We have to put the instrument in the correct mode before setting
                     # the parameters. Not necessary for "General" (mode_name None).
                     self._put_inst_in_mode(mode[0], mode[1])
-                self._update_one_param_on_inst(param, self._param_state[param0])
+                self._update_one_param_on_inst(param0, self._param_state[param0])
                 if param1 is not None:
-                    self._update_one_param_on_inst(param, self._param_state[param0])
+                    self._update_one_param_on_inst(param1, self._param_state[param1])
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
@@ -2044,8 +2044,8 @@ class InstrumentSiglentSDL1000(Device4882):
         self._high_power = self._model in ('SDL1030X-E', 'SDL1030X')
         self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
 
-    def configure_widget(self):
-        return InstrumentSiglentSDL1000ConfigureWidget(self)
+    def configure_widget(self, main_window):
+        return InstrumentSiglentSDL1000ConfigureWidget(main_window, self)
 
     def set_input_state(self, val):
         self._validator_1(val)

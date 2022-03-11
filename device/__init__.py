@@ -24,6 +24,9 @@
 from .device import Device4882
 from .siglent_sdl1000 import InstrumentSiglentSDL1000
 
+class UnknownInstrumentType(Exception):
+    pass
+
 _DEVICE_MAPPING = {
     ('Siglent Technologies', 'SDL1020X'):   InstrumentSiglentSDL1000,
     ('Siglent Technologies', 'SDL1020X-E'): InstrumentSiglentSDL1000,
@@ -32,14 +35,17 @@ _DEVICE_MAPPING = {
 }
 
 def create_device(rm, resource_name):
+    """"Query a device for its IDN and create the appropriate instrument class."""
     dev = Device4882(rm, resource_name)
     dev.connect()
     idn = dev.idn()
-    manufacturer, model, *_ = idn.split(',')
-    cls = _DEVICE_MAPPING.get((manufacturer, model), None)
+    idn_split = idn.split(',')
+    cls = None
+    if len(idn_split) >= 2:
+        manufacturer, model, *_ = idn_split
+        cls = _DEVICE_MAPPING.get((manufacturer, model), None)
     if cls is None:
-        print(f'Unknown device {idn}')
-        return None
+        raise UnknownInstrumentType(idn)
     new_dev = cls(rm, resource_name)
     new_dev.connect(resource=dev._resource)
     print(f'Found a {manufacturer} {model}')

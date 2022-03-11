@@ -45,8 +45,9 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtCore import *
 
 class ConfigureWidgetBase(QWidget):
-    def __init__(self, instrument):
+    def __init__(self, main_window, instrument):
         super().__init__()
+        self._main_window = main_window
         self._inst = instrument
         self._param_state = {}
         self._widget_registry = {}
@@ -128,3 +129,7 @@ class ConfigureWidgetBase(QWidget):
         layoutv.addWidget(text)
         text.setPlainText(contents)
         dialog.exec()
+
+    def closeEvent(self, event):
+        self._inst.disconnect()
+        self._main_window._device_window_closed(self._inst._resource_name)
