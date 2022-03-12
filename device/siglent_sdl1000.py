@@ -100,9 +100,11 @@ from PyQt6.QtWidgets import (QWidget,
                              QPushButton,
                              QRadioButton,
                              QSpinBox,
+                             QStyledItemDelegate,
+                             QTableView,
                              QVBoxLayout)
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QAbstractTableModel
 
 from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
@@ -121,15 +123,15 @@ from .config_widget_base import ConfigureWidgetBase
 # Dynamic mode, and the Constant X modes are only available in Basic, Dynamic,
 # Battery (except CV), and List modes.
 _SDL_OVERALL_MODES = {
-    'Basic':   ('!Dynamic_Mode_.*', 'Const_.*',),
-    'Dynamic': ('Dynamic_Mode_.*',  'Const_.*',),
-    'LED':     ('!Dynamic_Mode_.*', '!Const_.*',),
-    'Battery': ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Voltage'),
-    'List':    ('!Dynamic_Mode_.*', 'Const_.*',),
+    'Basic':   ('!Dynamic_Mode_.*', 'Const_.*', '~ListRow'),
+    'Dynamic': ('Dynamic_Mode_.*',  'Const_.*', '~ListRow'),
+    'LED':     ('!Dynamic_Mode_.*', '!Const_.*', '~ListRow'),
+    'Battery': ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Voltage', '~ListRow'),
+    'List':    ('!Dynamic_Mode_.*', 'Const_.*', 'ListRow'),
     'Program': ('!Dynamic_Mode_.*', '!Const_.*',
-                '!Range_Current_.*', '!Range_Voltage_.*'),
-    'OCPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
-    'OPPT':    ('!Dynamic_Mode_.*', '!Const_.*',),
+                '!Range_Current_.*', '!Range_Voltage_.*', '~ListRow'),
+    'OCPT':    ('!Dynamic_Mode_.*', '!Const_.*', '~ListRow'),
+    'OPPT':    ('!Dynamic_Mode_.*', '!Const_.*', '~ListRow'),
 }
 
 # This dictionary maps from the current overall mode (see above) and the current
@@ -244,13 +246,13 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
             ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',           '.3f', 'MainParametersLabel_BATTC', 'MainParameters_BATTC', 0, 'C'),
+            ('LEVEL',           '.3f', 'MainParametersLabel_BattC', 'MainParameters_BattC', 0, 'C'),
             (('VOLTAGE',
-              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BattVStop', 'MainParameters_BattVStop', 0, 'V'),
             (('CAP',
-              'CAP:STATE'),       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+              'CAP:STATE'),       'd', 'MainParametersLabel_BattCapStop', 'MainParameters_BattCapStop', 0, 999999),
             (('TIMER',
-              'TIMER:STATE'),     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
+              'TIMER:STATE'),     'd', 'MainParametersLabel_BattTimeStop', 'MainParameters_BattTimeStop', 0, 86400),
           )
         },
     ('Battery', 'Power'):
@@ -259,13 +261,13 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
             ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',           '.3f', 'MainParametersLabel_BATTP', 'MainParameters_BATTP', 0, 'P'),
+            ('LEVEL',           '.3f', 'MainParametersLabel_BattP', 'MainParameters_BattP', 0, 'P'),
             (('VOLTAGE',
-              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BattVStop', 'MainParameters_BattVStop', 0, 'V'),
             (('CAP',
-              'CAP:STATE'),       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+              'CAP:STATE'),       'd', 'MainParametersLabel_BattCapStop', 'MainParameters_BattCapStop', 0, 999999),
             (('TIMER',
-              'TIMER:STATE'),     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
+              'TIMER:STATE'),     'd', 'MainParametersLabel_BattTimeStop', 'MainParameters_BattTimeStop', 0, 86400),
           )
         },
     ('Battery', 'Resistance'):
@@ -274,13 +276,13 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',          'r', None, 'Range_Current_.*'),
             ('VRANGE',          'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',           '.3f', 'MainParametersLabel_BATTR', 'MainParameters_BATTR', 0.030, 10000),
+            ('LEVEL',           '.3f', 'MainParametersLabel_BattR', 'MainParameters_BattR', 0.030, 10000),
             (('VOLTAGE',
-              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BATTVSTOP', 'MainParameters_BATTVSTOP', 0, 'V'),
+              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BattVStop', 'MainParameters_BattVStop', 0, 'V'),
             (('CAP',
-              'CAP:STATE'),       'd', 'MainParametersLabel_BATTCAPSTOP', 'MainParameters_BATTCAPSTOP', 0, 999999),
+              'CAP:STATE'),       'd', 'MainParametersLabel_BattCapStop', 'MainParameters_BattCapStop', 0, 999999),
             (('TIMER',
-              'TIMER:STATE'),     'd', 'MainParametersLabel_BATTTSTOP', 'MainParameters_BATTTSTOP', 0, 86400),
+              'TIMER:STATE'),     'd', 'MainParametersLabel_BattTimeStop', 'MainParameters_BattTimeStop', 0, 86400),
           )
         },
     ('Dynamic', 'Voltage', 'Continuous'):
@@ -440,10 +442,10 @@ _SDL_MODE_PARAMS = {
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
             ('VOLTAGE',    '.3f', 'MainParametersLabel_OCPV', 'MainParameters_OCPV', 0, 'V'),
-            ('START',      '.3f', 'MainParametersLabel_OCPSTART', 'MainParameters_OCPSTART', 0, 'W:MainParameters_OCPEND'),
-            ('END',        '.3f', 'MainParametersLabel_OCPEND', 'MainParameters_OCPEND', 'W:MainParameters_OCPSTART', 'C'),
-            ('STEP',       '.3f', 'MainParametersLabel_OCPSTEP', 'MainParameters_OCPSTEP', 0, 'C'),
-            ('STEP:DELAY', '.3f', 'MainParametersLabel_OCPDELAY', 'MainParameters_OCPDELAY', 0.001, 999),
+            ('START',      '.3f', 'MainParametersLabel_OCPStart', 'MainParameters_OCPStart', 0, 'W:MainParameters_OCPEnd'),
+            ('END',        '.3f', 'MainParametersLabel_OCPEnd', 'MainParameters_OCPEnd', 'W:MainParameters_OCPStart', 'C'),
+            ('STEP',       '.3f', 'MainParametersLabel_OCPStep', 'MainParameters_OCPStep', 0, 'C'),
+            ('STEP:DELAY', '.3f', 'MainParametersLabel_OCPDelay', 'MainParameters_OCPDelay', 0.001, 999),
             ('MIN',        '.3f', 'AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 0, 'W:AuxParameters_OCPMAX'),
             ('MAX',        '.3f', 'AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 'W:AuxParameters_OCPMIN', 'C'),
           )
@@ -455,10 +457,10 @@ _SDL_MODE_PARAMS = {
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
             ('VOLTAGE',    '.3f', 'MainParametersLabel_OPPV', 'MainParameters_OPPV', 0, 'V'),
-            ('START',      '.2f', 'MainParametersLabel_OPPSTART', 'MainParameters_OPPSTART', 0, 'W:MainParameters_OPPEND'),
-            ('END',        '.2f', 'MainParametersLabel_OPPEND', 'MainParameters_OPPEND', 'W:MainParameters_OPPSTART', 'P'),
-            ('STEP',       '.2f', 'MainParametersLabel_OPPSTEP', 'MainParameters_OPPSTEP', 0, 'P'),
-            ('STEP:DELAY', '.3f', 'MainParametersLabel_OPPDELAY', 'MainParameters_OPPDELAY', 0.001, 999),
+            ('START',      '.2f', 'MainParametersLabel_OPPStart', 'MainParameters_OPPStart', 0, 'W:MainParameters_OPPEnd'),
+            ('END',        '.2f', 'MainParametersLabel_OPPEnd', 'MainParameters_OPPEnd', 'W:MainParameters_OPPStart', 'P'),
+            ('STEP',       '.2f', 'MainParametersLabel_OPPStep', 'MainParameters_OPPStep', 0, 'P'),
+            ('STEP:DELAY', '.3f', 'MainParametersLabel_OPPDelay', 'MainParameters_OPPDelay', 0.001, 999),
             ('MIN',        '.3f', 'AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 0, 'W:AuxParameters_OPPMAX'),
             ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 'W:AuxParameters_OPPMIN', 'P'),
           )
@@ -469,6 +471,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
           )
         },
     ('List', 'Current'):
@@ -477,6 +481,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
           )
         },
     ('List', 'Power'):
@@ -485,6 +491,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
           )
         },
     ('List', 'Resistance'):
@@ -493,6 +501,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
+            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
           )
         },
     ('Program', None):
@@ -502,6 +512,99 @@ _SDL_MODE_PARAMS = {
           )
         },
 }
+
+
+class DoubleSpinBoxDelegate(QStyledItemDelegate):
+    """Numerical input field to use in a QTableView."""
+    def __init__(self, parent, fmt, minmax):
+        super().__init__(parent)
+        self._fmt = fmt
+        self._min_val, self._max_val = minmax
+
+    def createEditor(self, parent, option, index):
+        input = QDoubleSpinBox(parent)
+        input.setAlignment(Qt.AlignmentFlag.AlignRight)
+        if self._fmt[-1] == 'd':
+            input.setDecimals(0)
+        else:
+            input.setDecimals(int(self._fmt[1:-1]))
+        input.setMinimum(self._min_val)
+        input.setMaximum(self._max_val)
+        input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
+        input.setAccelerated(True)
+        return input
+
+    def setEditorData(self, editor, index):
+        val = index.model().data(index, Qt.ItemDataRole.EditRole)
+        editor.setValue(val)
+
+class ListTableModel(QAbstractTableModel):
+    """Table model for the List table."""
+    def __init__(self):
+        super().__init__()
+        self._data = [[]]
+        self._fmts = []
+        self._header = []
+
+    def set_params(self, data, fmts, header):
+        self._data = data
+        self._fmts = fmts
+        self._header = header
+        self.layoutChanged.emit()
+        index_1 = self.index(0, 0)
+        index_2 = self.index(len(self._data)-1, len(self._fmts)-1)
+        self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.DisplayRole])
+
+    def cur_data(self):
+        return self._data
+
+    def data(self, index, role):
+        match role:
+            case Qt.ItemDataRole.TextAlignmentRole:
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            case Qt.ItemDataRole.DisplayRole:
+                row = index.row()
+                column = index.column()
+                val = self._data[row][column]
+                return (('%'+self._fmts[column]) % val)
+            case Qt.ItemDataRole.EditRole:
+                row = index.row()
+                column = index.column()
+                return self._data[row][column]
+
+    def setData(self, index, val, role):
+        if role == Qt.ItemDataRole.EditRole:
+            row = index.row()
+            column = index.column()
+            self._data[row][column] = float(val)
+            return True
+        return False
+
+    def rowCount(self, index):
+        return len(self._data)
+
+    def columnCount(self, index):
+        return len(self._data[0])
+
+    def headerData(self, section, orientation, role):
+        if orientation == Qt.Orientation.Horizontal:
+            match role:
+                case Qt.ItemDataRole.TextAlignmentRole:
+                    return Qt.AlignmentFlag.AlignCenter
+                case Qt.ItemDataRole.DisplayRole:
+                    if 0 <= section < len(self._header):
+                        return self._header[section]
+                    return ''
+        else:
+            match role:
+                case Qt.ItemDataRole.TextAlignmentRole:
+                    return Qt.AlignmentFlag.AlignRight
+                case Qt.ItemDataRole.DisplayRole:
+                    return '%d' % (section+1)
+
+    def flags(self, index):
+        return (Qt.ItemFlag.ItemIsEnabled |
+                Qt.ItemFlag.ItemIsEditable)
 
 
 # This class encapsulates the main SDL configuration widget.
@@ -874,15 +977,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # Aux Parameters
         frame = self._init_widgets_value_box('Aux Parameters', (
-                    ('Slew (rise)', 'BSlewPos', 'A/\u00B5', 'SLEW:POSITIVE'),
-                    ('Slew (fall)', 'BSlewNeg', 'A/\u00B5', 'SLEW:NEGATIVE'),
-                    ('Slew (rise)', 'TSlewPos', 'A/\u00B5', 'TRANSIENT:SLEW:POSITIVE'),
-                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5', 'TRANSIENT:SLEW:NEGATIVE'),
-                    ('I Min', 'OCPMIN', 'A', 'MIN'),
-                    ('I Max', 'OCPMAX', 'A', 'MAX'),
-                    ('P Min', 'OPPMIN', 'W', 'MIN'),
-                    ('P Max', 'OPPMAX', 'W', 'MAX'),
-                    ))
+                    ('Slew (rise)', 'BSlewPos', 'A/\u00B5s', 'SLEW:POSITIVE'),
+                    ('Slew (fall)', 'BSlewNeg', 'A/\u00B5s', 'SLEW:NEGATIVE'),
+                    ('Slew (rise)', 'TSlewPos', 'A/\u00B5s', 'TRANSIENT:SLEW:POSITIVE'),
+                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5s', 'TRANSIENT:SLEW:NEGATIVE'),
+                    ('I Min',       'OCPMIN',   'A',        'MIN'),
+                    ('I Max',       'OCPMAX',   'A',        'MAX'),
+                    ('P Min',       'OPPMIN',   'W',        'MIN'),
+                    ('P Max',       'OPPMAX',   'W',        'MAX')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 5em; max-height: 5em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -894,40 +996,40 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # Main Parameters
         frame = self._init_widgets_value_box('Main Parameters', (
-                    ('Voltage',     'Voltage',     'V',      'LEVEL:IMMEDIATE'),
-                    ('Current',     'Current',     'A',      'LEVEL:IMMEDIATE'),
-                    ('Power',       'Power',       'W',      'LEVEL:IMMEDIATE'),
-                    ('Resistance',  'Resistance',  '\u2126', 'LEVEL:IMMEDIATE'),
-                    ('A Level',     'ALevelV',     'V',      'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelV',     'V',      'TRANSIENT:BLEVEL'),
-                    ('A Level',     'ALevelC',     'A',      'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelC',     'A',      'TRANSIENT:BLEVEL'),
-                    ('A Level',     'ALevelP',     'W',      'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelP',     'W',      'TRANSIENT:BLEVEL'),
-                    ('A Level',     'ALevelR',     '\u2126', 'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelR',     '\u2126', 'TRANSIENT:BLEVEL'),
-                    ('A Width',     'AWidth',      's',      'TRANSIENT:AWIDTH'),
-                    ('B Width',     'BWidth',      's',      'TRANSIENT:BWIDTH'),
-                    ('Width',       'Width',       's',      'TRANSIENT:BWIDTH'),
-                    ('Vo',          'LEDV',        'V',      'VOLTAGE'),
-                    ('Io',          'LEDC',        'A',      'CURRENT'),
-                    ('Rco',         'LEDR',        None,     'RCONF'),
-                    ('Current',     'BATTC',       'A',      'LEVEL'),
-                    ('Power',       'BATTP',       'W',      'LEVEL'),
-                    ('Resistance',  'BATTR',       '\u2126', 'LEVEL'),
-                    ('*V Stop',      'BATTVSTOP',   'V',      'VOLTAGE'),
-                    ('*Cap Stop',    'BATTCAPSTOP', 'mAh',    'CAP'),
-                    ('*Time Stop',   'BATTTSTOP',   's',      'TIMER'),
-                    ('Von',         'OCPV',        'V',      'VOLTAGE'),
-                    ('I Start',     'OCPSTART',    'A',      'START'),
-                    ('I End',       'OCPEND',      'A',      'END'),
-                    ('I Step',      'OCPSTEP',     'A',      'STEP'),
-                    ('Step Delay',  'OCPDELAY',    's',      'STEP:DELAY'),
-                    ('Prot V',      'OPPV',        'V',      'VOLTAGE'),
-                    ('P Start',     'OPPSTART',    'W',      'START'),
-                    ('P End',       'OPPEND',      'W',      'END'),
-                    ('P Step',      'OPPSTEP',     'W',      'STEP'),
-                    ('Step Delay',  'OPPDELAY',    's',      'STEP:DELAY')))
+                    ('Voltage',     'Voltage',      'V',      'LEVEL:IMMEDIATE'),
+                    ('Current',     'Current',      'A',      'LEVEL:IMMEDIATE'),
+                    ('Power',       'Power',        'W',      'LEVEL:IMMEDIATE'),
+                    ('Resistance',  'Resistance',   '\u2126', 'LEVEL:IMMEDIATE'),
+                    ('A Level',     'ALevelV',      'V',      'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelV',      'V',      'TRANSIENT:BLEVEL'),
+                    ('A Level',     'ALevelC',      'A',      'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelC',      'A',      'TRANSIENT:BLEVEL'),
+                    ('A Level',     'ALevelP',      'W',      'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelP',      'W',      'TRANSIENT:BLEVEL'),
+                    ('A Level',     'ALevelR',      '\u2126', 'TRANSIENT:ALEVEL'),
+                    ('B Level',     'BLevelR',      '\u2126', 'TRANSIENT:BLEVEL'),
+                    ('A Width',     'AWidth',       's',      'TRANSIENT:AWIDTH'),
+                    ('B Width',     'BWidth',       's',      'TRANSIENT:BWIDTH'),
+                    ('Width',       'Width',        's',      'TRANSIENT:BWIDTH'),
+                    ('Vo',          'LEDV',         'V',      'VOLTAGE'),
+                    ('Io',          'LEDC',         'A',      'CURRENT'),
+                    ('Rco',         'LEDR',         None,     'RCONF'),
+                    ('Current',     'BattC',        'A',      'LEVEL'),
+                    ('Power',       'BattP',        'W',      'LEVEL'),
+                    ('Resistance',  'BattR',        '\u2126', 'LEVEL'),
+                    ('*V Stop',     'BattVStop',    'V',      'VOLTAGE'),
+                    ('*Cap Stop',   'BattCapStop',  'mAh',    'CAP'),
+                    ('*Time Stop',  'BattTimeStop', 's',      'TIMER'),
+                    ('Von',         'OCPV',         'V',      'VOLTAGE'),
+                    ('I Start',     'OCPStart',     'A',      'START'),
+                    ('I End',       'OCPEnd',       'A',      'END'),
+                    ('I Step',      'OCPStep',      'A',      'STEP'),
+                    ('Step Delay',  'OCPDelay',     's',      'STEP:DELAY'),
+                    ('Prot V',      'OPPV',         'V',      'VOLTAGE'),
+                    ('P Start',     'OPPStart',     'W',      'START'),
+                    ('P End',       'OPPEnd',       'W',      'END'),
+                    ('P Step',      'OPPStep',      'W',      'STEP'),
+                    ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 10em; max-height: 10em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -940,6 +1042,37 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         ###### ROW 2 - PROGRAM MODE ######
 
         ###### ROW 3 - LIST MODE ######
+
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_registry['ListRow'] = w
+
+        frame = self._init_widgets_value_box('List Parameters', (
+                    ('# Steps',   'ListSteps', None, 'STEP'),
+                    ('@Run Count', 'ListCount', None, 'COUNT')))
+        ss = """QGroupBox { min-width: 11em; max-width: 11em;
+                            min-height: 5em; max-height: 5em; }
+                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+             """
+        frame.setStyleSheet(ss)
+        row_layout.addWidget(frame)
+        row_layout.addStretch()
+
+        table = QTableView(alternatingRowColors=True)
+        table.setModel(ListTableModel())
+        row_layout.addWidget(table)
+        ss = """QTableView { min-width: 18em; max-width: 18em;
+                             min-height: 11em; max-height: 11em; }"""
+        table.setStyleSheet(ss)
+        table.verticalHeader().setMinimumWidth(30)
+        self._widget_registry['ListTable'] = table
+
+        row_layout.addStretch()
+
+        ###################
 
         ###### ROW 4 - SHORT/LOAD/TRIGGER ######
 
@@ -1150,18 +1283,22 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         widget_prefix = title.replace(' ', '')
         layoutv = QVBoxLayout(frame)
         for (display, param_name, unit, scpi) in details:
-            disabled_ok = False
+            special_text = None
             if display[0] == '*':
                 # Special indicator that "0" means "Disabled"
-                disabled_ok = True
+                special_text = 'Disabled'
+                display = display[1:]
+            if display[0] == '@':
+                # Special indicator that "0" means "Infinite"
+                special_text = 'Infinite'
                 display = display[1:]
             layouth = QHBoxLayout()
             label = QLabel(display+':')
             layouth.addWidget(label)
             input = QDoubleSpinBox()
             input.wid = (param_name, scpi)
-            if disabled_ok:
-                input.setSpecialValueText('Disabled')
+            if special_text:
+                input.setSpecialValueText(special_text)
             input.setAlignment(Qt.AlignmentFlag.AlignRight)
             input.setDecimals(3)
             input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
@@ -1441,7 +1578,6 @@ Copyright 2022, Robert S. French"""
         # Check for special case of associated boolean flag
         param1 = f':{mode_name}:{scpi}:STATE'
         if param1 in self._param_state:
-            print(val)
             new_param_state[param1] = int(val != 0)
         self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
@@ -1483,7 +1619,7 @@ Copyright 2022, Robert S. French"""
              QPushButton::pressed {{ border: 4px solid black; }}
               """
         bt.setStyleSheet(ss)
-        if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT'):
+        if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT', 'List', 'Program'):
             # There is no SHORT capability in these modes
             self._widget_registry['ShortONOFFEnable'].setEnabled(False)
             self._widget_registry['ShortONOFF'].setEnabled(False)
@@ -1906,7 +2042,48 @@ Copyright 2022, Robert S. French"""
         self._update_short_onoff_button()
         self._update_trigger_buttons()
 
+        # Maybe update the List table
+        if self._cur_overall_mode == 'List':
+            self._update_list_table()
+
         self._disable_callbacks = False
+
+    def _update_list_table(self):
+        table = self._widget_registry['ListTable']
+        widths = (90, 70, 80)
+        match self._cur_const_mode:
+            case 'Voltage':
+                hdr = ('Voltage (V)', 'Time (s)')
+                fmts = ('.3f', '.3f')
+                ranges = ((0, float(self._param_state[':LIST:VRANGE'])), (0.001, 999))
+            case 'Current':
+                hdr = ['Current (A)', 'Time (s)', 'Slew (A/\u00B5s)']
+                fmts = ['.3f', '.3f', '.3f']
+                ranges = ((0, float(self._param_state[':LIST:IRANGE'])), (0.001, 999),
+                          (0.001, 0.5))
+            case 'Power':
+                hdr = ['Power (W)', 'Time (s)']
+                fmts = ['.2f', '.3f']
+                if self._inst._high_power:
+                    max_val = 300
+                else:
+                    max_val = 200
+                ranges = ((0, max_val), (0.001, 999))
+            case 'Resistance':
+                hdr = ['Resistance (\u2126)', 'Time (s)']
+                fmts = ['.3f', '.3f']
+                ranges = ((0.03, 10000), (0.001, 999))
+        data = []
+        for i in range(self._param_state[':LIST:STEP']):
+            if self._cur_const_mode == 'Current':
+                data.append([1,2,0.5])
+            else:
+                data.append([1,2])
+        table.model().set_params(data, fmts, hdr)
+        for i, fmt in enumerate(fmts):
+            table.setItemDelegateForColumn(i, DoubleSpinBoxDelegate(self, fmt, ranges[i]))
+            table.setColumnWidth(i, widths[i])
+
 
     def _cur_mode_param_info(self, null_dynamic_mode_ok=False):
         if self._cur_overall_mode == 'Dynamic':
@@ -2043,6 +2220,10 @@ class InstrumentSiglentSDL1000(Device4882):
         self._long_name = f'{self._model} @ {self._resource_name}'
         self._high_power = self._model in ('SDL1030X-E', 'SDL1030X')
         self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
+
+    def disconnect(self, *args, **kwargs):
+        self.write(':SYST:REMOTE:STATE 0')
+        super().disconnect(*args, **kwargs)
 
     def configure_widget(self, main_window):
         return InstrumentSiglentSDL1000ConfigureWidget(main_window, self)
