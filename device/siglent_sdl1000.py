@@ -106,6 +106,9 @@ from PyQt6.QtWidgets import (QWidget,
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QAbstractTableModel
 
+import numpy as np
+import pyqtgraph as pg
+
 from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
 
@@ -471,8 +474,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
+            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
           )
         },
     ('List', 'Current'):
@@ -481,8 +484,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
+            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
           )
         },
     ('List', 'Power'):
@@ -491,8 +494,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
+            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
           )
         },
     ('List', 'Resistance'):
@@ -501,8 +504,8 @@ _SDL_MODE_PARAMS = {
          'params': (
             ('IRANGE',       'r', None, 'Range_Current_.*'),
             ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', None, 'ListParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', None, 'ListParameters_ListCount', 0, 255),
+            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
+            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
           )
         },
     ('Program', None):
@@ -540,11 +543,12 @@ class DoubleSpinBoxDelegate(QStyledItemDelegate):
 
 class ListTableModel(QAbstractTableModel):
     """Table model for the List table."""
-    def __init__(self):
+    def __init__(self, data_changed_callback):
         super().__init__()
         self._data = [[]]
         self._fmts = []
         self._header = []
+        self._data_changed_calledback = data_changed_callback
 
     def set_params(self, data, fmts, header):
         self._data = data
@@ -573,10 +577,13 @@ class ListTableModel(QAbstractTableModel):
                 return self._data[row][column]
 
     def setData(self, index, val, role):
+        print('setData', index, val, role)
         if role == Qt.ItemDataRole.EditRole:
             row = index.row()
             column = index.column()
-            self._data[row][column] = float(val)
+            val = float(val)
+            self._data[row][column] = val
+            self._data_changed_calledback(row, column, val)
             return True
         return False
 
@@ -618,6 +625,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._cur_overall_mode = None # e.g. Basic, Dynamic, LED
         self._cur_const_mode = None   # e.g. Voltage, Current, Power, Resistance
         self._cur_dynamic_mode = None # e.g. Continuous, Pulse, Toggle
+
+        # List mode parameters
+        self._list_mode_levels = None
+        self._list_mode_widths = None
+        self._list_mode_slews = None
 
         # Used to enable or disable measurement of parameters to speed up
         # data acquisition.
@@ -680,6 +692,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                             self._param_state[param0] = 0
                         self._inst.write(f'{param0} 0')
 
+        # Special read of the List Mode parameters
+        steps = self._param_state[':LIST:STEP']
+        self._list_mode_levels = []
+        self._list_mode_widths = []
+        self._list_mode_slews = []
+        for i in range(1, steps+1):
+            self._list_mode_levels.append(float(self._inst.query(f':LIST:LEVEL? {i}')))
+            self._list_mode_widths.append(float(self._inst.query(f':LIST:WIDTH? {i}')))
+            self._list_mode_slews.append(float(self._inst.query(f':LIST:SLEW? {i}')))
+
         # Set things like _cur_overall_mode and _cur_const_mode and update widgets
         self._update_state_from_param_state()
 
@@ -708,6 +730,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 self._update_one_param_on_inst(param0, self._param_state[param0])
                 if param1 is not None:
                     self._update_one_param_on_inst(param1, self._param_state[param1])
+
+        # Special write of the List Mode parameters
+        steps = self._param_state[':LIST:STEP']
+        for i in range(1, steps+1):
+            self._inst.write(f':LIST:LEVEL {i},{self._list_mode_levels[i-1]}')
+            self._inst.write(f':LIST:WIDTH {i},{self._list_mode_widths[i-1]}')
+            self._inst.write(f':LIST:SLEW {i},{self._list_mode_slews[i-1]}')
+
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
@@ -1029,7 +1059,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     ('P Start',     'OPPStart',     'W',      'START'),
                     ('P End',       'OPPEnd',       'W',      'END'),
                     ('P Step',      'OPPStep',      'W',      'STEP'),
-                    ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY')))
+                    ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY'),
+                    ('# Steps',     'ListSteps',    None,     'STEP'),
+                    ('@Run Count',  'ListCount',    None,     'COUNT')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 10em; max-height: 10em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -1050,19 +1082,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         main_vert_layout.addWidget(w)
         self._widget_registry['ListRow'] = w
 
-        frame = self._init_widgets_value_box('List Parameters', (
-                    ('# Steps',   'ListSteps', None, 'STEP'),
-                    ('@Run Count', 'ListCount', None, 'COUNT')))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 5em; max-height: 5em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
-        row_layout.addWidget(frame)
-        row_layout.addStretch()
-
         table = QTableView(alternatingRowColors=True)
-        table.setModel(ListTableModel())
+        table.setModel(ListTableModel(self._on_list_table_change))
         row_layout.addWidget(table)
         ss = """QTableView { min-width: 18em; max-width: 18em;
                              min-height: 11em; max-height: 11em; }"""
@@ -1070,7 +1091,13 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         table.verticalHeader().setMinimumWidth(30)
         self._widget_registry['ListTable'] = table
 
-        row_layout.addStretch()
+        pw = pg.plot()
+        self._list_mode_level_plot = pw.plot([], pen=0)
+        pw.setMaximumSize(2000, 178) # XXX Warning magic constants!
+        row_layout.addWidget(pw)
+        self._widget_registry['ListPlot'] = pw
+
+        row_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
         ###################
 
@@ -1081,7 +1108,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.setContentsMargins(0, 0, 0, 0)
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
-        self._widget_row_trigger = w;
+        self._widget_row_trigger = w
 
         ###### ROW 4, COLUMN 1 - SHORT ######
 
@@ -1582,6 +1609,20 @@ Copyright 2022, Robert S. French"""
         self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
+    def _on_list_table_change(self, row, column, val):
+        """Handle change to any List Mode table value."""
+        match column:
+            case 0:
+                self._list_mode_levels[row] = val
+                self._inst.write(f':LIST:LEVEL {row+1},{val:.3f}')
+            case 1:
+                self._list_mode_widths[row] = val
+                self._inst.write(f':LIST:WIDTH {row+1},{val:.3f}')
+            case 2:
+                self._list_mode_slews[row] = val
+                self._inst.write(f':LIST:SLEW {row+1},{val:.3f}')
+        self._update_list_table()
+
     def _on_click_short_enable(self):
         """Handle clicking on the short enable checkbox."""
         if self._disable_callbacks: # Prevent recursive calls
@@ -1815,7 +1856,6 @@ Copyright 2022, Robert S. French"""
     def _update_load_state(self, state, update_inst=True):
         """Update the load on/off internal state, possibly updating the instrument."""
         old_state = self._param_state[':INPUT:STATE']
-        new_param_state = {':INPUT:STATE': state}
 
         if state != old_state:
             # When turning on/off the load, record the details for the battery log
@@ -1869,7 +1909,10 @@ Copyright 2022, Robert S. French"""
                     self._batt_log_caps.append(disch_cap)
 
         if update_inst:
+            new_param_state = {':INPUT:STATE': state}
             self._update_param_state_and_inst(new_param_state)
+        else:
+            self._param_state[':INPUT:STATE'] = state
         self._update_load_onoff_button(state)
         self._update_trigger_buttons()
 
@@ -2076,14 +2119,24 @@ Copyright 2022, Robert S. French"""
         data = []
         for i in range(self._param_state[':LIST:STEP']):
             if self._cur_const_mode == 'Current':
-                data.append([1,2,0.5])
+                data.append([self._list_mode_levels[i],
+                             self._list_mode_widths[i],
+                             self._list_mode_slews[i]])
             else:
-                data.append([1,2])
+                data.append([self._list_mode_levels[i],
+                             self._list_mode_widths[i]])
         table.model().set_params(data, fmts, hdr)
         for i, fmt in enumerate(fmts):
             table.setItemDelegateForColumn(i, DoubleSpinBoxDelegate(self, fmt, ranges[i]))
             table.setColumnWidth(i, widths[i])
 
+        # Update the List plot
+        plot_x = np.cumsum([0] + self._list_mode_widths)
+        plot_y = self._list_mode_levels + [self._list_mode_levels[-1]]
+        plot_widget = self._widget_registry['ListPlot']
+        self._list_mode_level_plot.setData(plot_x, plot_y)
+        plot_widget.setLabel(axis='left', text=hdr[0])
+        plot_widget.setLabel(axis='bottom', text='Cumulative Time (s)')
 
     def _cur_mode_param_info(self, null_dynamic_mode_ok=False):
         if self._cur_overall_mode == 'Dynamic':
