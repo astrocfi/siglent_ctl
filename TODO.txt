@@ -2,7 +2,6 @@
 
 - Problem with exiting focus in List Mode table
 
-
 ** PyInstaller **
 
 pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6
@@ -19,8 +18,22 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** SDL1000 **
 
+- Try status bar for
+  - Warning about list mode not showing current state accurately while running
+  - Progress during configuration load
+  - Progress during reset
+- Try to fake list mode position based on time
+  - Does turning the load off reset the position?
+  - Does a second trigger pause now or at the end of the current timeslot?
+  - Highlight table row
+  - Draw vertical line on plot
+  - Put comment at top of file about List mode not giving current status via SCPI
+- What happens when you change the const mode while List is running?
+- What happens when you change a list parameter while List is running?
+- Make master About show list of supported instruments
+- Add rise and fall time measurements (default off)
 - Slew pos/neg have to be in the same "range" 0.001-0.01 or 0.01-0.5
-- Measure external source
+- Measure external source (try it with remote cable)
 - Implement Program mode
   - Follow along with the steps and highlight rows
 - Various other SDL features:
@@ -40,6 +53,8 @@ Siglent Technologies,SDS1204X-E,SDSMMEBQ4R5097,8.2.6.1.37R2
 ** SPD **
 
 Siglent Technologies,SPD3303X-E,SPD3XIDD5R6400,1.01.01.02.07R2,V3.0
+
+- Note no status available for P3
 
 ** SDG **
 

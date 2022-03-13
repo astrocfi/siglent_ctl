@@ -541,16 +541,6 @@ class DoubleSpinBoxDelegate(QStyledItemDelegate):
         val = index.model().data(index, Qt.ItemDataRole.EditRole)
         editor.setValue(val)
 
-    # def eventFilter(self, editor, event):
-    #     if event.type() == QEvent.Type.KeyPress:
-    #         print(event.key())
-    #         if event.key() == Qt.Key.Key_Return:
-    #             print('Woohoo!')
-    #             self.commitData.emit(editor)
-    #             editor.parent().parent().setFocus()
-    #             return True
-    #     return super().eventFilter(editor, event)
-
 class ListTableModel(QAbstractTableModel):
     """Table model for the List table."""
     def __init__(self, data_changed_callback):
@@ -1097,7 +1087,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         pw = pg.plot()
         self._list_mode_level_plot = pw.plot([], pen=0)
-        pw.setMaximumSize(500, 178) # XXX Warning magic constants!
+        pw.setMaximumSize(365, 178) # XXX Warning magic constants!
         row_layout.addWidget(pw)
         self._widget_registry['ListPlot'] = pw
 
@@ -1653,7 +1643,7 @@ Copyright 2022, Robert S. French"""
             case 2:
                 self._list_mode_slews[row] = val
                 self._inst.write(f':LIST:SLEW {row+1},{val:.3f}')
-        self._update_list_table()
+        self._update_list_table(update_table=False)
 
     def _on_click_short_enable(self):
         """Handle clicking on the short enable checkbox."""
@@ -1759,9 +1749,9 @@ Copyright 2022, Robert S. French"""
         enabled = False
         if (src == 'BUS' and
             self._param_state[':INPUT:STATE'] and
-            (self._cur_overall_mode == 'Dynamic' and
-             self._cur_dynamic_mode != 'Continuous') or
-            self._cur_overall_mode in ('List', 'Program')):
+            ((self._cur_overall_mode == 'Dynamic' and
+              self._cur_dynamic_mode != 'Continuous') or
+             self._cur_overall_mode in ('List', 'Program'))):
             enabled = True
         self._widget_registry['Trigger'].setEnabled(enabled)
 
@@ -2068,10 +2058,7 @@ Copyright 2022, Robert S. French"""
                                 max_val = self._param_state[f':{mode_name}{trans}:VRANGE']
                                 max_val = float(max_val)
                             case 'P': # SDL1020 is 200W, SDL1030 is 300W
-                                if self._inst._high_power:
-                                    max_val = 300
-                                else:
-                                    max_val = 200
+                                max_val = self._inst._max_power
                             case 'W':
                                 if minmax_ok:
                                     # This is needed because when we're first loading up
@@ -2140,45 +2127,61 @@ Copyright 2022, Robert S. French"""
 
         self._disable_callbacks = False
 
-    def _update_list_table(self):
+    def _update_list_table(self, update_table=True):
+        """Update the list table and associated plot if data has changed."""
+        vrange = float(self._param_state[':LIST:VRANGE'])
+        irange = float(self._param_state[':LIST:IRANGE'])
+        # If the ranges changed, we may have to clip the values in the table
+        match self._cur_const_mode:
+            case 'Voltage':
+                self._list_mode_levels = [min(x, vrange)
+                                             for x in self._list_mode_levels]
+            case 'Current':
+                self._list_mode_levels = [min(x, irange)
+                                             for x in self._list_mode_levels]
+            case 'Power':
+                self._list_mode_levels = [min(x, self._inst._max_power)
+                                             for x in self._list_mode_levels]
+            # Nothing to do for Resistance since its max is largest
         table = self._widget_registry['ListTable']
+        step = self._param_state[':LIST:STEP']
         widths = (90, 70, 80)
         match self._cur_const_mode:
             case 'Voltage':
                 hdr = ('Voltage (V)', 'Time (s)')
                 fmts = ('.3f', '.3f')
-                ranges = ((0, float(self._param_state[':LIST:VRANGE'])), (0.001, 999))
+                ranges = ((0, vrange), (0.001, 999))
             case 'Current':
                 hdr = ['Current (A)', 'Time (s)', 'Slew (A/\u00B5s)']
                 fmts = ['.3f', '.3f', '.3f']
-                ranges = ((0, float(self._param_state[':LIST:IRANGE'])), (0.001, 999),
-                          (0.001, 0.5))
+                ranges = ((0, irange), (0.001, 999), (0.001, 0.5))
             case 'Power':
                 hdr = ['Power (W)', 'Time (s)']
                 fmts = ['.2f', '.3f']
-                if self._inst._high_power:
-                    max_val = 300
-                else:
-                    max_val = 200
-                ranges = ((0, max_val), (0.001, 999))
+                ranges = ((0, self._inst._max_power), (0.001, 999))
             case 'Resistance':
                 hdr = ['Resistance (\u2126)', 'Time (s)']
                 fmts = ['.3f', '.3f']
                 ranges = ((0.03, 10000), (0.001, 999))
-        data = []
-        step = self._param_state[':LIST:STEP']
-        for i in range(step):
-            if self._cur_const_mode == 'Current':
-                data.append([self._list_mode_levels[i],
-                             self._list_mode_widths[i],
-                             self._list_mode_slews[i]])
-            else:
-                data.append([self._list_mode_levels[i],
-                             self._list_mode_widths[i]])
-        table.model().set_params(data, fmts, hdr)
-        for i, fmt in enumerate(fmts):
-            table.setItemDelegateForColumn(i, DoubleSpinBoxDelegate(self, fmt, ranges[i]))
-            table.setColumnWidth(i, widths[i])
+        if update_table:
+            # We don't always want to update the table, because in edit mode when the
+            # user changes a value, the table will have already been updated internally,
+            # and if we mess with it here it screws up the focus for the edit box and
+            # the edit box never closes.
+            data = []
+            for i in range(step):
+                if self._cur_const_mode == 'Current':
+                    data.append([self._list_mode_levels[i],
+                                 self._list_mode_widths[i],
+                                 self._list_mode_slews[i]])
+                else:
+                    data.append([self._list_mode_levels[i],
+                                 self._list_mode_widths[i]])
+            table.model().set_params(data, fmts, hdr)
+            for i, fmt in enumerate(fmts):
+                table.setItemDelegateForColumn(
+                                i, DoubleSpinBoxDelegate(self, fmt, ranges[i]))
+                table.setColumnWidth(i, widths[i])
 
         # Update the List plot
         plot_x = [0]
@@ -2329,7 +2332,7 @@ class InstrumentSiglentSDL1000(Device4882):
         if not self._model.startswith('SDL'):
             assert ValueError
         self._long_name = f'{self._model} @ {self._resource_name}'
-        self._high_power = self._model in ('SDL1030X-E', 'SDL1030X')
+        self._max_power = 300 if self._model in ('SDL1030X-E', 'SDL1030X') else 200
         self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
 
     def disconnect(self, *args, **kwargs):
