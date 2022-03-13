@@ -104,7 +104,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QTableView,
                              QVBoxLayout)
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt, QAbstractTableModel
+from PyQt6.QtCore import Qt, QAbstractTableModel, QEvent
 
 import numpy as np
 import pyqtgraph as pg
@@ -526,7 +526,7 @@ class DoubleSpinBoxDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         input = QDoubleSpinBox(parent)
-        input.setAlignment(Qt.AlignmentFlag.AlignRight)
+        input.setAlignment(Qt.AlignmentFlag.AlignLeft)
         if self._fmt[-1] == 'd':
             input.setDecimals(0)
         else:
@@ -540,6 +540,16 @@ class DoubleSpinBoxDelegate(QStyledItemDelegate):
     def setEditorData(self, editor, index):
         val = index.model().data(index, Qt.ItemDataRole.EditRole)
         editor.setValue(val)
+
+    # def eventFilter(self, editor, event):
+    #     if event.type() == QEvent.Type.KeyPress:
+    #         print(event.key())
+    #         if event.key() == Qt.Key.Key_Return:
+    #             print('Woohoo!')
+    #             self.commitData.emit(editor)
+    #             editor.parent().parent().setFocus()
+    #             return True
+    #     return super().eventFilter(editor, event)
 
 class ListTableModel(QAbstractTableModel):
     """Table model for the List table."""
@@ -565,7 +575,7 @@ class ListTableModel(QAbstractTableModel):
     def data(self, index, role):
         match role:
             case Qt.ItemDataRole.TextAlignmentRole:
-                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             case Qt.ItemDataRole.DisplayRole:
                 row = index.row()
                 column = index.column()
@@ -577,7 +587,6 @@ class ListTableModel(QAbstractTableModel):
                 return self._data[row][column]
 
     def setData(self, index, val, role):
-        print('setData', index, val, role)
         if role == Qt.ItemDataRole.EditRole:
             row = index.row()
             column = index.column()
@@ -693,14 +702,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                         self._inst.write(f'{param0} 0')
 
         # Special read of the List Mode parameters
-        steps = self._param_state[':LIST:STEP']
-        self._list_mode_levels = []
-        self._list_mode_widths = []
-        self._list_mode_slews = []
-        for i in range(1, steps+1):
-            self._list_mode_levels.append(float(self._inst.query(f':LIST:LEVEL? {i}')))
-            self._list_mode_widths.append(float(self._inst.query(f':LIST:WIDTH? {i}')))
-            self._list_mode_slews.append(float(self._inst.query(f':LIST:SLEW? {i}')))
+        self._update_list_mode_from_instrument()
 
         # Set things like _cur_overall_mode and _cur_const_mode and update widgets
         self._update_state_from_param_state()
@@ -712,6 +714,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         This is tricker than it should be, because if you send a configuration
         command to the SDL for a mode it's not currently in, it crashes!"""
         set_params = set()
+        first_list_mode_write = True
         for mode, info in _SDL_MODE_PARAMS.items():
             first_write = True
             for param_spec in info['params']:
@@ -730,13 +733,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 self._update_one_param_on_inst(param0, self._param_state[param0])
                 if param1 is not None:
                     self._update_one_param_on_inst(param1, self._param_state[param1])
-
-        # Special write of the List Mode parameters
-        steps = self._param_state[':LIST:STEP']
-        for i in range(1, steps+1):
-            self._inst.write(f':LIST:LEVEL {i},{self._list_mode_levels[i-1]}')
-            self._inst.write(f':LIST:WIDTH {i},{self._list_mode_widths[i-1]}')
-            self._inst.write(f':LIST:SLEW {i},{self._list_mode_slews[i-1]}')
+            if info['mode_name'] == 'LIST' and first_list_mode_write:
+                first_list_mode_write = False
+                # Special write of the List Mode parameters
+                steps = self._param_state[':LIST:STEP']
+                for i in range(1, steps+1):
+                    self._inst.write(f':LIST:LEVEL {i},{self._list_mode_levels[i-1]}')
+                    self._inst.write(f':LIST:WIDTH {i},{self._list_mode_widths[i-1]}')
+                    self._inst.write(f':LIST:SLEW {i},{self._list_mode_slews[i-1]}')
 
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
@@ -1093,7 +1097,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         pw = pg.plot()
         self._list_mode_level_plot = pw.plot([], pen=0)
-        pw.setMaximumSize(2000, 178) # XXX Warning magic constants!
+        pw.setMaximumSize(500, 178) # XXX Warning magic constants!
         row_layout.addWidget(pw)
         self._widget_registry['ListPlot'] = pw
 
@@ -1150,7 +1154,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         layoutv.setSpacing(0)
         row_layout.addLayout(layoutv)
         bg = QButtonGroup(layoutv)
-        rb = QRadioButton('Bus')
+        rb = QRadioButton('SDL Panel')
+        rb.mode = 'Manual'
+        bg.addButton(rb)
+        rb.button_group = bg
+        rb.clicked.connect(self._on_click_trigger_source)
+        layoutv.addWidget(rb)
+        self._widget_registry['Trigger_Man'] = rb
+        rb = QRadioButton('TRIG\u25CE \u279c')
         rb.setChecked(True)
         rb.mode = 'Bus'
         bg.addButton(rb)
@@ -1158,14 +1169,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         rb.clicked.connect(self._on_click_trigger_source)
         layoutv.addWidget(rb)
         self._widget_registry['Trigger_Bus'] = rb
-        rb = QRadioButton('Man')
-        rb.mode = 'Manual'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Man'] = rb
-        rb = QRadioButton('Ext')
+        rb = QRadioButton('External')
         rb.mode = 'External'
         bg.addButton(rb)
         rb.button_group = bg
@@ -1362,8 +1366,15 @@ Copyright 2022, Robert S. French"""
         fn = fn[0]
         if not fn:
             return
+        ps = self._param_state.copy()
+        # Add the List mode parameters as fake SCPI commands
+        step = ps[':LIST:STEP']
+        for i in range(step):
+            ps[f':LIST:LEVEL {i+1}'] = self._list_mode_levels[i]
+            ps[f':LIST:WIDTH {i+1}'] = self._list_mode_widths[i]
+            ps[f':LIST:SLEW {i+1}'] = self._list_mode_slews[i]
         with open(fn, 'w') as fp:
-            json.dump(self._param_state, fp, sort_keys=True, indent=4)
+            json.dump(ps, fp, sort_keys=True, indent=4)
 
     def _menu_do_load_configuration(self):
         """Load the current configuration from a file."""
@@ -1374,7 +1385,23 @@ Copyright 2022, Robert S. French"""
         if not fn:
             return
         with open(fn, 'r') as fp:
-            self._param_state = json.load(fp)
+            ps = json.load(fp)
+        # Retrieve the List mode parameters
+        step = ps[':LIST:STEP']
+        self._list_mode_levels = []
+        self._list_mode_widths = []
+        self._list_mode_slews = []
+        for i in range(step):
+            cmd = f':LIST:LEVEL {i+1}'
+            self._list_mode_levels.append(ps[cmd])
+            del ps[cmd]
+            cmd = f':LIST:WIDTH {i+1}'
+            self._list_mode_widths.append(ps[cmd])
+            del ps[cmd]
+            cmd = f':LIST:SLEW {i+1}'
+            self._list_mode_slews.append(ps[cmd])
+            del ps[cmd]
+        self._param_state = ps
         # Clean up the param state. We don't want to start with the load or short on.
         self._param_state['SYST:REMOTE:STATE'] = 1
         self._update_load_state(0)
@@ -1601,12 +1628,17 @@ Copyright 2022, Robert S. French"""
             val = float(input.value())
         else:
             val = int(val)
-        new_param_state = {f':{mode_name}:{scpi}': val}
+        scpi_cmd = f':{mode_name}:{scpi}'
+        new_param_state = {scpi_cmd: val}
         # Check for special case of associated boolean flag
         param1 = f':{mode_name}:{scpi}:STATE'
         if param1 in self._param_state:
             new_param_state[param1] = int(val != 0)
         self._update_param_state_and_inst(new_param_state)
+        if scpi_cmd == ':LIST:STEP':
+            # When we change the number of steps, we might need to read in more
+            # rows from the instrument
+            self._update_list_mode_from_instrument(new_rows_only=True)
         self._update_widgets()
 
     def _on_list_table_change(self, row, column, val):
@@ -1725,7 +1757,7 @@ Copyright 2022, Robert S. French"""
         self._widget_registry['Trigger_Ext'].setChecked(src == 'EXTERNAL')
 
         enabled = False
-        if (src == 'Bus' and
+        if (src == 'BUS' and
             self._param_state[':INPUT:STATE'] and
             (self._cur_overall_mode == 'Dynamic' and
              self._cur_dynamic_mode != 'Continuous') or
@@ -1852,6 +1884,23 @@ Copyright 2022, Robert S. French"""
         # It's not very efficient, but it doesn't matter.
         self._update_widgets(minmax_ok=False)
         self._update_widgets(minmax_ok=True)
+
+    def _update_list_mode_from_instrument(self, new_rows_only=False):
+        """Update the internal state for List mode from the instruments.
+
+        If new_rows_only is True, then we just read the data for any rows that
+        we haven't read already, assuming the rest to already be correct. If the
+        number of rows has decreased, we leave the entries in the internal state so
+        if the rows are increased again we don't have to bother fetching the data."""
+        if not new_rows_only:
+            self._list_mode_levels = []
+            self._list_mode_widths = []
+            self._list_mode_slews = []
+        steps = self._param_state[':LIST:STEP']
+        for i in range(len(self._list_mode_levels)+1, steps+1):
+            self._list_mode_levels.append(float(self._inst.query(f':LIST:LEVEL? {i}')))
+            self._list_mode_widths.append(float(self._inst.query(f':LIST:WIDTH? {i}')))
+            self._list_mode_slews.append(float(self._inst.query(f':LIST:SLEW? {i}')))
 
     def _update_load_state(self, state, update_inst=True):
         """Update the load on/off internal state, possibly updating the instrument."""
@@ -2117,7 +2166,8 @@ Copyright 2022, Robert S. French"""
                 fmts = ['.3f', '.3f']
                 ranges = ((0.03, 10000), (0.001, 999))
         data = []
-        for i in range(self._param_state[':LIST:STEP']):
+        step = self._param_state[':LIST:STEP']
+        for i in range(step):
             if self._cur_const_mode == 'Current':
                 data.append([self._list_mode_levels[i],
                              self._list_mode_widths[i],
@@ -2131,8 +2181,16 @@ Copyright 2022, Robert S. French"""
             table.setColumnWidth(i, widths[i])
 
         # Update the List plot
-        plot_x = np.cumsum([0] + self._list_mode_widths)
-        plot_y = self._list_mode_levels + [self._list_mode_levels[-1]]
+        plot_x = [0]
+        plot_y = [self._list_mode_levels[0]]
+        for i in range(step-1):
+            x_val = plot_x[-1] + self._list_mode_widths[i]
+            plot_x.append(x_val)
+            plot_x.append(x_val)
+            plot_y.append(self._list_mode_levels[i])
+            plot_y.append(self._list_mode_levels[i+1])
+        plot_x.append(plot_x[-1]+self._list_mode_widths[step-1])
+        plot_y.append(self._list_mode_levels[step-1])
         plot_widget = self._widget_registry['ListPlot']
         self._list_mode_level_plot.setData(plot_x, plot_y)
         plot_widget.setLabel(axis='left', text=hdr[0])
