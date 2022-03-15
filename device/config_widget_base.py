@@ -67,6 +67,7 @@ class ConfigureWidgetBase(QWidget):
         self.setWindowTitle(f'{self._inst._long_name} ({self._inst._name})')
 
         layoutv = QVBoxLayout(self)
+        layoutv.setContentsMargins(0, 0, 0, 0)
         layoutv.setSpacing(0)
         layoutv.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
@@ -99,9 +100,11 @@ class ConfigureWidgetBase(QWidget):
         layoutv.addWidget(self._menubar)
         central_widget = QWidget()
         layoutv.addWidget(central_widget)
-        # self._statusbar = QStatusBar()
-        # self._statusbar.setSizeGripEnabled(False)
-        # layoutv.addWidget(self._statusbar)
+        self._statusbar = QStatusBar()
+        self._statusbar.setSizeGripEnabled(False)
+        ss = """color: black; background-color: #c0c0c0; font-weight: bold;"""
+        self._statusbar.setStyleSheet(ss)
+        layoutv.addWidget(self._statusbar)
 
         return central_widget
 

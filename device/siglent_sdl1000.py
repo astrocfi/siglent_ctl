@@ -939,6 +939,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         layouts = QVBoxLayout()
         row_layout.addLayout(layouts)
         frame = QGroupBox('Mode')
+        self._widget_registry['FrameMode'] = frame
         frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
         layouts.addWidget(frame)
         layouth = QHBoxLayout(frame)
@@ -985,6 +986,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # Mode radio buttons: CV, CC, CP, CR
         frame = QGroupBox('Constant')
+        self._widget_registry['FrameConstant'] = frame
         frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
         row_layout.addWidget(frame)
         layoutv = QVBoxLayout(frame)
@@ -1008,7 +1010,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # V/I/R Range selections
         frame = QGroupBox('Range')
-        # frame.setStyleSheet('QGroupBox { min-height: 8.1em; max-height: 8.1em; }')
+        self._widget_registry['FrameRange'] = frame
         layouts.addWidget(frame)
         layout = QGridLayout(frame)
         layout.setSpacing(0)
@@ -1228,34 +1230,41 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         layoutv.setSpacing(0)
         row_layout.addLayout(layoutv)
         layoutv.addWidget(QLabel('Enable measurements:'))
+        layoutg = QGridLayout()
+        layoutv.addLayout(layoutg)
+
         cb = QCheckBox('Voltage')
         cb.setStyleSheet('padding-left: 0.5em;') # Indent
         cb.setChecked(True)
         cb.mode = 'V'
         cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
+        layoutg.addWidget(cb, 0, 0)
         self._widget_registry['Enable_V'] = cb
-        cb = QCheckBox('Current')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'C'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
-        self._widget_registry['Enable_C'] = cb
+
         cb = QCheckBox('Power')
         cb.setStyleSheet('padding-left: 0.5em;') # Indent
         cb.setChecked(True)
         cb.mode = 'P'
         cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
+        layoutg.addWidget(cb, 0, 1)
         self._widget_registry['Enable_P'] = cb
+
+        cb = QCheckBox('Current')
+        cb.setStyleSheet('padding-left: 0.5em;') # Indent
+        cb.setChecked(True)
+        cb.mode = 'C'
+        cb.clicked.connect(self._on_click_enable_measurements)
+        layoutg.addWidget(cb, 1, 0)
+        self._widget_registry['Enable_C'] = cb
+
         cb = QCheckBox('Resistance')
         cb.setStyleSheet('padding-left: 0.5em;') # Indent
         cb.setChecked(True)
         cb.mode = 'R'
         cb.clicked.connect(self._on_click_enable_measurements)
-        layoutv.addWidget(cb)
+        layoutg.addWidget(cb, 1, 1)
         self._widget_registry['Enable_R'] = cb
+
         layoutv.addStretch()
         pb = QPushButton('Reset Addl Cap && Test Log')
         pb.clicked.connect(self._on_click_reset_batt_test)
@@ -1366,6 +1375,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             self._widget_registry[f'{widget_prefix}_{param_name}'] = input
             self._widget_registry[f'{widget_prefix}Label_{param_name}'] = label
         layoutv.addStretch()
+        self._widget_registry[f'Frame{widget_prefix}'] = frame
         return frame
 
 
@@ -1796,14 +1806,24 @@ Copyright 2022, Robert S. French"""
             # Hitting TRIG while List mode is running causes it to stop after the
             # current step is complete. Triggering multiple times doesn't change this.
             if not self._list_mode_running:
+                if self._list_mode_cur_step_num is None:
+                    self._list_mode_cur_step_num = 0
                 self._list_mode_running = True
                 self._list_mode_cur_step_start_time = time.time()
                 self._list_mode_stopping = False
                 self._list_mode_timer.start()
-                print('Starting timer')
             else:
                 # We stop the progression AFTER the current step finished
                 self._list_mode_stopping = True
+                if self._list_mode_cur_step_num == self._param_state[':LIST:STEP']-1:
+                    QMessageBox.warning(self, 'Warning',
+                         'Due to a bug in the SDL1000, pausing in List Mode on the final '
+                         'step and then resuming will cause execution of an additional '
+                         'step not currently displayed. This will confuse the status '
+                         'display and could potentially damage your device under test. '
+                         'It is strongly recommended that you not resume List Mode '
+                         'sequencing at this point but instead turn off the load to '
+                         'reset to step 1. This bug has been reported to Siglent.')
 
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
@@ -1946,9 +1966,10 @@ Copyright 2022, Robert S. French"""
             if state:
                 self._load_on_time = time.time()
                 self._batt_log_initial_voltage = None
-                # And if we're in List mode, reset to step 0
+                # And if we're in List mode, reset to step None (it will go to 0 when
+                # triggered)
                 if self._cur_overall_mode == 'List':
-                    self._list_mode_cur_step_num = 0
+                    self._list_mode_cur_step_num = None
             else:
                 self._load_off_time = time.time()
                 # Any change from one overall mode to another (e.g. leaving List mode
@@ -2008,8 +2029,7 @@ Copyright 2022, Robert S. French"""
             self._update_param_state_and_inst(new_param_state)
         else:
             self._param_state[':INPUT:STATE'] = state
-        self._update_load_onoff_button(state)
-        self._update_trigger_buttons()
+        self._update_widgets()
 
     def _update_short_state(self, state):
         new_param_state = {':SHORT:STATE': state}
@@ -2181,6 +2201,34 @@ Copyright 2022, Robert S. French"""
         if self._cur_overall_mode == 'List':
             self._update_list_table_graph()
 
+        # Finally, we don't allow parameters to be modified during certain modes
+        if self._cur_overall_mode == 'Battery' and self._param_state[':INPUT:STATE']:
+            # Battery mode is running
+            self._widget_registry['FrameMode'].setEnabled(False)
+            self._widget_registry['FrameConstant'].setEnabled(False)
+            self._widget_registry['FrameRange'].setEnabled(False)
+            self._widget_registry['FrameMainParameters'].setEnabled(True)
+            self._widget_registry['FrameAuxParameters'].setEnabled(True)
+        elif self._cur_overall_mode == 'List' and self._param_state[':INPUT:STATE']:
+            # List mode is running
+            self._widget_registry['FrameMode'].setEnabled(False)
+            self._widget_registry['FrameConstant'].setEnabled(False)
+            self._widget_registry['FrameRange'].setEnabled(False)
+            self._widget_registry['FrameMainParameters'].setEnabled(False)
+            self._widget_registry['FrameAuxParameters'].setEnabled(False)
+        else:
+            self._widget_registry['FrameMode'].setEnabled(True)
+            self._widget_registry['FrameConstant'].setEnabled(True)
+            self._widget_registry['FrameRange'].setEnabled(True)
+            self._widget_registry['FrameMainParameters'].setEnabled(True)
+            self._widget_registry['FrameAuxParameters'].setEnabled(True)
+
+        status_msg = ''
+        if self._cur_overall_mode == 'List':
+            status_msg = """Turn on load. Use TRIG to start/pause list progression.
+List status tracking is an approximation."""
+        self._statusbar.showMessage(status_msg)
+
         self._disable_callbacks = False
 
     def _update_list_table_graph(self, update_table=True, list_step_only=False):
@@ -2261,16 +2309,22 @@ Copyright 2022, Robert S. French"""
 
         # Update the running plot and highlight the appropriate table row
         if self._list_mode_cur_step_num is not None:
-            table.model().set_highlighted_row(self._list_mode_cur_step_num)
             delta = 0
+            step_num = self._list_mode_cur_step_num
             if self._list_mode_running:
                 delta = time.time() - self._list_mode_cur_step_start_time
+            else:
+                # When we pause List mode, we end at the end of the previous step,
+                # not the start of the next step
+                step_num = (step_num-1) % self._param_state[':LIST:STEP']
+                delta = self._list_mode_widths[step_num]
             cur_step_x = 0
-            if self._list_mode_cur_step_num > 0:
-                cur_step_x = sum(self._list_mode_widths[:self._list_mode_cur_step_num])
+            if step_num > 0:
+                cur_step_x = sum(self._list_mode_widths[:step_num])
             cur_step_x += delta
             self._list_mode_step_plot.setData([cur_step_x, cur_step_x],
                                               [min_plot_y, max_plot_y])
+            table.model().set_highlighted_row(step_num)
         else:
             table.model().set_highlighted_row(None)
             self._list_mode_step_plot.setData([], [])
