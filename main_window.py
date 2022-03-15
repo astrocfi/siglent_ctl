@@ -158,8 +158,8 @@ class MainWindow(QWidget):
 
         self._heartbeat_timer = QTimer(self.app)
         self._heartbeat_timer.timeout.connect(self.update)
-        self._heartbeat_timer.start()
         self.set_heartbeat_timer(1000)
+        self._heartbeat_timer.start()
 
     def _refresh_menubar_device_recent_resources(self):
         """Update the text in the Recent Resources actions."""

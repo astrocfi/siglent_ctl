@@ -103,8 +103,8 @@ from PyQt6.QtWidgets import (QWidget,
                              QStyledItemDelegate,
                              QTableView,
                              QVBoxLayout)
-from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt, QAbstractTableModel, QEvent
+from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtCore import Qt, QAbstractTableModel, QEvent, QTimer
 
 import numpy as np
 import pyqtgraph as pg
@@ -548,6 +548,7 @@ class ListTableModel(QAbstractTableModel):
         self._data = [[]]
         self._fmts = []
         self._header = []
+        self._highlighted_row = None
         self._data_changed_calledback = data_changed_callback
 
     def set_params(self, data, fmts, header):
@@ -559,22 +560,39 @@ class ListTableModel(QAbstractTableModel):
         index_2 = self.index(len(self._data)-1, len(self._fmts)-1)
         self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.DisplayRole])
 
+    def set_highlighted_row(self, row):
+        if self._highlighted_row is not None:
+            index_1 = self.index(self._highlighted_row, 0)
+            index_2 = self.index(self._highlighted_row, len(self._fmts)-1)
+            # Remove old highlight
+            self._highlighted_row = None
+            self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.BackgroundRole])
+        self._highlighted_row = row
+        if row is not None:
+            index_1 = self.index(row, 0)
+            index_2 = self.index(row, len(self._fmts)-1)
+            # Set new highlight
+            self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.BackgroundRole])
+
     def cur_data(self):
         return self._data
 
     def data(self, index, role):
+        row = index.row()
+        column = index.column()
         match role:
             case Qt.ItemDataRole.TextAlignmentRole:
                 return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             case Qt.ItemDataRole.DisplayRole:
-                row = index.row()
-                column = index.column()
                 val = self._data[row][column]
                 return (('%'+self._fmts[column]) % val)
             case Qt.ItemDataRole.EditRole:
-                row = index.row()
-                column = index.column()
                 return self._data[row][column]
+            case Qt.ItemDataRole.BackgroundRole:
+                if row == self._highlighted_row:
+                    return QColor('yellow')
+                return None
+        return None
 
     def setData(self, index, val, role):
         if role == Qt.ItemDataRole.EditRole:
@@ -630,6 +648,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._list_mode_widths = None
         self._list_mode_slews = None
 
+        # The time the most recent List step was started
+        self._list_mode_running = False
+        self._list_mode_cur_step_start_time = None
+        self._list_mode_cur_step_num = None
+        self._list_mode_stopping = False
+
         # Used to enable or disable measurement of parameters to speed up
         # data acquisition.
         self._enable_measurement_v = True
@@ -646,9 +670,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._load_off_time = None
         self._reset_batt_log()
 
-        # We need to call this last because some things called by __init__ rely
+        # We need to call this later because some things called by __init__ rely
         # on the above variables being initialized.
         super().__init__(*args, **kwargs)
+
+        # Timer used to follow along with List mode
+        self._list_mode_timer = QTimer(self._main_window.app)
+        self._list_mode_timer.timeout.connect(self._update_list_table_heartbeat)
+        self._list_mode_timer.setInterval(250)
 
 
     ######################
@@ -1085,8 +1114,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         table.verticalHeader().setMinimumWidth(30)
         self._widget_registry['ListTable'] = table
 
-        pw = pg.plot()
+        pw = pg.plot() # Disable zoom and pan
+        pw.plotItem.setMouseEnabled(x=False, y=False)
+        pw.plotItem.setMenuEnabled(False)
         self._list_mode_level_plot = pw.plot([], pen=0)
+        self._list_mode_step_plot = pw.plot([], pen=1)
         pw.setMaximumSize(365, 178) # XXX Warning magic constants!
         row_layout.addWidget(pw)
         self._widget_registry['ListPlot'] = pw
@@ -1643,7 +1675,7 @@ Copyright 2022, Robert S. French"""
             case 2:
                 self._list_mode_slews[row] = val
                 self._inst.write(f':LIST:SLEW {row+1},{val:.3f}')
-        self._update_list_table(update_table=False)
+        self._update_list_table_graph(update_table=False)
 
     def _on_click_short_enable(self):
         """Handle clicking on the short enable checkbox."""
@@ -1760,6 +1792,18 @@ Copyright 2022, Robert S. French"""
         if self._disable_callbacks: # Prevent recursive calls
             return
         self._inst.trg()
+        if self._cur_overall_mode == 'List':
+            # Hitting TRIG while List mode is running causes it to stop after the
+            # current step is complete. Triggering multiple times doesn't change this.
+            if not self._list_mode_running:
+                self._list_mode_running = True
+                self._list_mode_cur_step_start_time = time.time()
+                self._list_mode_stopping = False
+                self._list_mode_timer.start()
+                print('Starting timer')
+            else:
+                # We stop the progression AFTER the current step finished
+                self._list_mode_stopping = True
 
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
@@ -1898,11 +1942,23 @@ Copyright 2022, Robert S. French"""
 
         if state != old_state:
             # When turning on/off the load, record the details for the battery log
+            # or other purposes that may be written in the future
             if state:
                 self._load_on_time = time.time()
                 self._batt_log_initial_voltage = None
+                # And if we're in List mode, reset to step 0
+                if self._cur_overall_mode == 'List':
+                    self._list_mode_cur_step_num = 0
             else:
                 self._load_off_time = time.time()
+                # Any change from one overall mode to another (e.g. leaving List mode
+                # for any reason) will pass through here, so this takes care of stopping
+                # the timer in all those cases
+                self._list_mode_timer.stop()
+                self._list_mode_cur_step_num = None
+                self._list_mode_stopping = False
+                self._list_mode_running = False
+                self._update_list_table_graph(list_step_only=True)
 
             if not state and self._cur_overall_mode == 'Battery':
                 # For some reason when using Battery mode remotely, when the test is
@@ -2123,11 +2179,11 @@ Copyright 2022, Robert S. French"""
 
         # Maybe update the List table
         if self._cur_overall_mode == 'List':
-            self._update_list_table()
+            self._update_list_table_graph()
 
         self._disable_callbacks = False
 
-    def _update_list_table(self, update_table=True):
+    def _update_list_table_graph(self, update_table=True, list_step_only=False):
         """Update the list table and associated plot if data has changed."""
         vrange = float(self._param_state[':LIST:VRANGE'])
         irange = float(self._param_state[':LIST:IRANGE'])
@@ -2184,20 +2240,59 @@ Copyright 2022, Robert S. French"""
                 table.setColumnWidth(i, widths[i])
 
         # Update the List plot
-        plot_x = [0]
-        plot_y = [self._list_mode_levels[0]]
-        for i in range(step-1):
-            x_val = plot_x[-1] + self._list_mode_widths[i]
-            plot_x.append(x_val)
-            plot_x.append(x_val)
-            plot_y.append(self._list_mode_levels[i])
-            plot_y.append(self._list_mode_levels[i+1])
-        plot_x.append(plot_x[-1]+self._list_mode_widths[step-1])
-        plot_y.append(self._list_mode_levels[step-1])
-        plot_widget = self._widget_registry['ListPlot']
-        self._list_mode_level_plot.setData(plot_x, plot_y)
-        plot_widget.setLabel(axis='left', text=hdr[0])
-        plot_widget.setLabel(axis='bottom', text='Cumulative Time (s)')
+        min_plot_y = 0
+        max_plot_y = max(self._list_mode_levels[:step])
+        if not list_step_only:
+            plot_x = [0]
+            plot_y = [self._list_mode_levels[0]]
+            for i in range(step-1):
+                x_val = plot_x[-1] + self._list_mode_widths[i]
+                plot_x.append(x_val)
+                plot_x.append(x_val)
+                plot_y.append(self._list_mode_levels[i])
+                plot_y.append(self._list_mode_levels[i+1])
+            plot_x.append(plot_x[-1]+self._list_mode_widths[step-1])
+            plot_y.append(self._list_mode_levels[step-1])
+            plot_widget = self._widget_registry['ListPlot']
+            self._list_mode_level_plot.setData(plot_x, plot_y)
+            plot_widget.setLabel(axis='left', text=hdr[0])
+            plot_widget.setLabel(axis='bottom', text='Cumulative Time (s)')
+            plot_widget.setYRange(min_plot_y, max_plot_y)
+
+        # Update the running plot and highlight the appropriate table row
+        if self._list_mode_cur_step_num is not None:
+            table.model().set_highlighted_row(self._list_mode_cur_step_num)
+            delta = 0
+            if self._list_mode_running:
+                delta = time.time() - self._list_mode_cur_step_start_time
+            cur_step_x = 0
+            if self._list_mode_cur_step_num > 0:
+                cur_step_x = sum(self._list_mode_widths[:self._list_mode_cur_step_num])
+            cur_step_x += delta
+            self._list_mode_step_plot.setData([cur_step_x, cur_step_x],
+                                              [min_plot_y, max_plot_y])
+        else:
+            table.model().set_highlighted_row(None)
+            self._list_mode_step_plot.setData([], [])
+
+    def _update_list_table_heartbeat(self):
+        """Handle the rapid heartbeat when in List mode to update the highlighting."""
+        print('THB')
+        if self._list_mode_running:
+            cur_time = time.time()
+            delta = cur_time - self._list_mode_cur_step_start_time
+            if delta >= self._list_mode_widths[self._list_mode_cur_step_num]:
+                # We've moved on to the next step (or more than one step)
+                if self._list_mode_stopping:
+                    self._list_mode_stopping = False
+                    self._list_mode_running = False
+                    self._list_mode_timer.stop()
+                while delta >= self._list_mode_widths[self._list_mode_cur_step_num]:
+                    delta -= self._list_mode_widths[self._list_mode_cur_step_num]
+                    self._list_mode_cur_step_num = (
+                        self._list_mode_cur_step_num+1) % self._param_state[':LIST:STEP']
+                self._list_mode_cur_step_start_time = cur_time - delta
+            self._update_list_table_graph(list_step_only=True)
 
     def _cur_mode_param_info(self, null_dynamic_mode_ok=False):
         if self._cur_overall_mode == 'Dynamic':
