@@ -648,6 +648,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._list_mode_widths = None
         self._list_mode_slews = None
 
+        # We have to fake the progress of the steps in List mode because there is no
+        # SCPI command to find out what step we are currently on, so we do it by
+        # looking at the elapsed time and hope the instrument and the computer stay
+        # roughly synchronized. But if they fall out of sync there's no way to get
+        # them back in sync except starting the List sequence over.
+
         # The time the most recent List step was started
         self._list_mode_running = False
         self._list_mode_cur_step_start_time = None
@@ -764,32 +770,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
-    def measurement_details(self):
-        """Return metadata about the available measurements."""
-        ret = []
-        if self._enable_measurement_v:
-            ret.append({'name': 'Voltage',
-                        'units': 'V'})
-        if self._enable_measurement_c:
-            ret.append({'name': 'Current',
-                        'units': 'A'})
-        if self._enable_measurement_p:
-            ret.append({'name': 'Power',
-                        'units': 'W'})
-        if self._enable_measurement_r:
-            ret.append({'name': 'Resistance',
-                        'units': '\u2126'})
-        if self._cur_overall_mode == 'Battery':
-            ret.append({'name': 'Discharge Time',
-                        'units': 's'})
-            ret.append({'name': 'Capacity',
-                        'units': 'mAh'})
-            ret.append({'name': 'Addl Capacity',
-                        'units': 'mAh'})
-            ret.append({'name': 'Total Capacity',
-                        'units': 'mAh'})
-        return ret
-
     def update_measurements(self):
         """Read current values, update control panel display, return the values."""
         # Update the load on/off state in case we hit a protection limit
@@ -801,46 +781,55 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         measurements = {}
 
         w = self._widget_registry['MeasureV']
+        voltage = None
         if self._enable_measurement_v:
             # Voltage is available regardless of the input state
             voltage = self._inst.measure_voltage()
-            measurements['Voltage'] = voltage
             w.setText('%10.6f V' % voltage)
         else:
             w.setText('---   V')
+        measurements['Voltage'] = {'name':  'Voltage',
+                                   'unit':  'V',
+                                   'val':   voltage}
 
         w = self._widget_registry['MeasureC']
+        current = None
         if self._enable_measurement_c:
             # Current is only available when the load is on
             if not input_state:
                 w.setText('N/A   A')
             else:
                 current = self._inst.measure_current()
-                measurements['Current'] = current
                 w.setText('%10.6f A' % current)
         else:
             w.setText('---   A')
+        measurements['Current'] = {'name':  'Current',
+                                   'unit':  'A',
+                                   'val':   current}
 
         w = self._widget_registry['MeasureP']
+        power = None
         if self._enable_measurement_p:
             # Power is only available when the load is on
             if not input_state:
                 w.setText('N/A   W')
             else:
                 power = self._inst.measure_power()
-                measurements['Power'] = power
                 w.setText('%10.6f W' % power)
         else:
             w.setText('---   W')
+        measurements['Power'] = {'name':  'Power',
+                                 'unit':  'W',
+                                 'val':   power}
 
         w = self._widget_registry['MeasureR']
+        resistance = None
         if self._enable_measurement_r:
             # Resistance is only available when the load is on
             if not input_state:
                 w.setText('N/A   \u2126')
             else:
                 resistance = self._inst.measure_resistance()
-                measurements['Resistance'] = resistance
                 if resistance < 10:
                     fmt = '%8.6f'
                 elif resistance < 100:
@@ -856,13 +845,19 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 w.setText(f'{fmt} \u2126' % resistance)
         else:
             w.setText('---   \u2126')
+        measurements['Resistance'] = {'name':  'Resistance',
+                                      'unit':  '\u2126',
+                                      'val':   resistance}
 
+        disch_time = None
+        disch_cap = None
+        add_cap = None
+        total_cap = None
         if self._cur_overall_mode == 'Battery':
             # Battery measurements are available regardless of load state
             if self._batt_log_initial_voltage is None:
                 self._batt_log_initial_voltage = voltage
             disch_time = self._inst.measure_battery_time()
-            measurements['Discharge Time'] = disch_time
             m, s = divmod(disch_time, 60)
             h, m = divmod(m, 60)
             w = self._widget_registry['MeasureBattTime']
@@ -870,23 +865,32 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
             w = self._widget_registry['MeasureBattCap']
             disch_cap = self._inst.measure_battery_capacity()
-            measurements['Capacity'] = disch_cap
             w.setText('%d mAh' % disch_cap)
 
             w = self._widget_registry['MeasureBattAddCap']
             add_cap = self._inst.measure_battery_add_capacity()
-            measurements['Addl Capacity'] = add_cap
             w.setText('Addl Cap: %6d mAh' % add_cap)
 
             # When the LOAD is OFF, we have already updated the ADDCAP to include the
             # current test results, so we don't want to add it in a second time
             if input_state:
-                val = disch_cap+add_cap
+                total_cap = disch_cap+add_cap
             else:
-                val = add_cap
-            measurements['Total Capacity'] = val
+                total_cap = add_cap
             w = self._widget_registry['MeasureBattTotalCap']
-            w.setText('Total Cap: %6d mAh' % val)
+            w.setText('Total Cap: %6d mAh' % total_cap)
+        measurements['Discharge Time'] = {'name':  'Discharge Time',
+                                          'unit':  's',
+                                          'val':   disch_time}
+        measurements['Capacity'] = {'name':  'Capacity',
+                                    'unit':  'mAh',
+                                    'val':   disch_cap}
+        measurements['Addl Capacity'] = {'name':  'Addl Capacity',
+                                         'unit':  'mAh',
+                                         'val':   add_cap}
+        measurements['Total Capacity'] = {'name':  'Total Capacity',
+                                          'unit':  'mAh',
+                                          'val':   total_cap}
 
         return measurements
 
@@ -928,7 +932,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         w = QWidget()
         row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
         self._widget_row_parameters = w;
@@ -1116,7 +1119,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         table.verticalHeader().setMinimumWidth(30)
         self._widget_registry['ListTable'] = table
 
-        pw = pg.plot() # Disable zoom and pan
+        pw = pg.plot()
+        # Disable zoom and pan
         pw.plotItem.setMouseEnabled(x=False, y=False)
         pw.plotItem.setMenuEnabled(False)
         self._list_mode_level_plot = pw.plot([], pen=0)
@@ -1241,21 +1245,21 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         layoutg.addWidget(cb, 0, 0)
         self._widget_registry['Enable_V'] = cb
 
-        cb = QCheckBox('Power')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'P'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 0, 1)
-        self._widget_registry['Enable_P'] = cb
-
         cb = QCheckBox('Current')
         cb.setStyleSheet('padding-left: 0.5em;') # Indent
         cb.setChecked(True)
         cb.mode = 'C'
         cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 1, 0)
+        layoutg.addWidget(cb, 0, 1)
         self._widget_registry['Enable_C'] = cb
+
+        cb = QCheckBox('Power')
+        cb.setStyleSheet('padding-left: 0.5em;') # Indent
+        cb.setChecked(True)
+        cb.mode = 'P'
+        cb.clicked.connect(self._on_click_enable_measurements)
+        layoutg.addWidget(cb, 1, 0)
+        self._widget_registry['Enable_P'] = cb
 
         cb = QCheckBox('Resistance')
         cb.setStyleSheet('padding-left: 0.5em;') # Indent
@@ -2223,11 +2227,14 @@ Copyright 2022, Robert S. French"""
             self._widget_registry['FrameMainParameters'].setEnabled(True)
             self._widget_registry['FrameAuxParameters'].setEnabled(True)
 
-        status_msg = ''
+        status_msg = None
         if self._cur_overall_mode == 'List':
             status_msg = """Turn on load. Use TRIG to start/pause list progression.
 List status tracking is an approximation."""
-        self._statusbar.showMessage(status_msg)
+        if status_msg is None:
+            self._statusbar.clearMessage()
+        else:
+            self._statusbar.showMessage(status_msg)
 
         self._disable_callbacks = False
 

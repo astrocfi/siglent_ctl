@@ -21,35 +21,26 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
+import math
 import sys
 import time
 
-from PyQt6.QtWidgets import (QWidget,
-                             QApplication,
-                             QMenuBar, QMenu, QStatusBar,
-                             QDialog,
+from PyQt6.QtWidgets import (QDialog,
                              QDialogButtonBox,
-                             QLabel,
-                             QLineEdit,
-                             QMessageBox,
-                             QPushButton,
-                             QRadioButton,
-                             QAbstractSpinBox,
-                             QDoubleSpinBox,
-                             QSpinBox,
-                             QButtonGroup,
                              QLayout,
-                             QGridLayout,
-                             QGroupBox,
-                             QHBoxLayout,
+                             QLineEdit,
+                             QMenuBar,
+                             QMessageBox,
                              QVBoxLayout,
-                             QPlainTextEdit)
+                             QWidget,
+                            )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import *
+from PyQt6.QtCore import QTimer
 
 import pyvisa
 
 import device
+from plot_xy_window import PlotXYWindow
 
 
 class IPAddressDialog(QDialog):
@@ -70,7 +61,7 @@ class IPAddressDialog(QDialog):
         self._button_box.accepted.connect(self.accept)
         self._button_box.rejected.connect(self.reject)
         self._button_box.button(
-                QDialogButtonBox.StandardButton.Open).setEnabled(False)
+            QDialogButtonBox.StandardButton.Open).setEnabled(False)
         layoutv.addWidget(self._button_box)
 
     def _validator(self):
@@ -86,10 +77,10 @@ class IPAddressDialog(QDialog):
                     break
             else: # Good address
                 self._button_box.button(
-                        QDialogButtonBox.StandardButton.Open).setEnabled(True)
+                    QDialogButtonBox.StandardButton.Open).setEnabled(True)
                 return
         self._button_box.button(
-                QDialogButtonBox.StandardButton.Open).setEnabled(False)
+            QDialogButtonBox.StandardButton.Open).setEnabled(False)
 
     def get_ip_address(self):
         """Return the entered IP address."""
@@ -100,24 +91,32 @@ class MainWindow(QWidget):
     """The main window of the entire application."""
     def __init__(self, app):
         super().__init__()
+        self.setWindowTitle('Siglent Instrument Controller')
 
         self.app = app
-
         self.resource_manager = pyvisa.ResourceManager()
 
-        # Tuple of (resource_name, inst class, inst config class)
+        # Tuple of (resource_name,
+        #           instrument class instance,
+        #           config widget class instance)
         self._open_resources = []
+
+        self._measurement_start_time = None
+        self._measurement_times = {}
+        self._measurements = {}
+        self._measurement_units = {}
+        self._measurement_names = {}
 
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
-
         self._recent_resources.append('TCPIP::192.168.0.63')
 
-        self.setWindowTitle(f'Siglent Instrument Controller')
+        self._plot_window_widgets = []
 
         ### Layout the widgets
 
         layoutv = QVBoxLayout()
+        layoutv.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layoutv)
         layoutv.setSpacing(0)
         layoutv.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
@@ -146,6 +145,11 @@ class MainWindow(QWidget):
             self._menubar_device.addAction(action)
             self._menubar_device_recent_actions.append(action)
         self._refresh_menubar_device_recent_resources()
+
+        self._menubar_device = self._menubar.addMenu('&Plot')
+        action = QAction('New &X/Y Plot', self)
+        action.triggered.connect(self._menu_do_new_xy_plot)
+        self._menubar_device.addAction(action)
 
         self._menubar_help = self._menubar.addMenu('&Help')
         action = QAction('&About', self)
@@ -182,13 +186,38 @@ class MainWindow(QWidget):
 
     def update(self):
         """Query all instruments and update all measurements and display widgets."""
-        for _, _, config_widget in self._open_resources:
+        # Although technically each measurement takes place at a different time,
+        # it's important that we treat each measurement group as being at a single
+        # time so we can match up measurements.
+        cur_time = time.time()
+        if self._measurement_start_time is None:
+            self._measurement_start_time = cur_time
+        for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
-                config_widget.update_measurements()
+                measurements = config_widget.update_measurements()
+                for meas_key, meas in measurements.items():
+                    name = meas['name']
+                    key = (inst.name, name)
+                    if key not in self._measurements:
+                        self._measurement_times[key] = []
+                        self._measurements[key] = []
+                        self._measurement_units[key] = meas['unit']
+                        self._measurement_names[key] = f'{inst.name}: {name}'
+                    self._measurement_times[key].append(cur_time)
+                    val = meas['val']
+                    if val is None:
+                        val = math.nan
+                    self._measurements[key].append(val)
+
+        for plot_widget in self._plot_window_widgets:
+            plot_widget.update()
 
     def _menu_do_about(self):
         """Show the About box."""
         msg = """Siglent Instrument Controller.
+
+Supported instruments:
+SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E
 
 Copyright 2022, Robert S. French"""
         QMessageBox.about(self, 'About', msg)
@@ -224,6 +253,7 @@ Copyright 2022, Robert S. French"""
         else:
             del self._recent_resources[idx]
         self._recent_resources.insert(0, resource_name)
+        self._recent_resources = self._recent_resources[:self._max_recent_resources]
 
         # Create the device
         try:
@@ -249,6 +279,12 @@ Copyright 2022, Robert S. French"""
     def _menu_do_exit(self):
         """Perform the menu exit command."""
         sys.exit(0)
+
+    def _menu_do_new_xy_plot(self):
+        """Perform the menu New XY Plot command."""
+        w = PlotXYWindow(self)
+        w.show()
+        self._plot_window_widgets.append(w)
 
     def _device_window_closed(self, resource_name):
         """Update internal state when one of the configuration widgets is closed."""

@@ -58,6 +58,14 @@ class Device(object):
     def firmware_version(self):
         return self._firmware_version
 
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def long_name(self):
+        return self._long_name
+        
     def set_debug(self, val):
         self._debug = val
 
