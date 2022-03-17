@@ -55,14 +55,18 @@ import pyvisa
 import device
 
 
-_TIME_DURATIONS = (('1 min', 60),
+_TIME_DURATIONS = (('15 seconds', 15),
+                   ('1 min', 60),
                    ('5 min', 60*5),
                    ('15 min', 60*15),
                    ('30 min', 60*30),
                    ('1 hour', 60*60),
+                   ('3 hours', 60*60*3),
                    ('6 hours', 60*60*6),
                    ('12 hours', 60*60*12),
-                   ('1 day', 60*60*24))
+                   ('1 day', 60*60*24),
+                   ('1 week', 60*60*24*7),
+                   ('4 weeks', 60*60*24*7*4))
 
 class PlotXYWindow(QWidget):
     """The main window of the entire application."""
@@ -78,9 +82,10 @@ class PlotXYWindow(QWidget):
         self._plot_viewboxes = []
         self._plot_colors = ['FF0000', 'FFFF00', '00FF00', '00FFFF', '3030FF',
                              'FF00FF', 'FF8000', '80FF00']
-        self._plot_sources = ['Voltage', 'Current', 'Power', 'Resistance']
         self._plot_x_source_prev = None
         self._plot_x_source = 'Elapsed Time'
+        self._plot_y_sources = [None, None, None, None]
+        self._plot_y_source_combos = []
         self._plot_duration = 60 # Default to "1 min"
 
         ### Layout the widgets
@@ -142,7 +147,7 @@ class PlotXYWindow(QWidget):
             pdi = pg.PlotDataItem([], [], pen=self._plot_colors[i])
             self._plot_viewboxes[i].addItem(pdi)
             self._plot_items.append(pdi)
-            self._plot_sources.append(None)
+            self._plot_y_sources.append(None)
 
         self._on_update_views()
         self._update_axes()
@@ -161,6 +166,7 @@ class PlotXYWindow(QWidget):
         label.setStyleSheet('margin-right: 5px;')
         layouth2.addWidget(label)
         combo = QComboBox()
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.activated.connect(self._on_x_axis_source)
         self._widget_x_axis_combo = combo
         layouth2.addWidget(self._widget_x_axis_combo)
@@ -175,11 +181,30 @@ class PlotXYWindow(QWidget):
         layouth2.addWidget(label)
         combo = QComboBox()
         combo.activated.connect(self._on_x_axis_duration)
+        self._widget_duration = combo
         layouth2.addWidget(combo)
         for duration, secs in _TIME_DURATIONS:
             combo.addItem(duration, userData=secs)
 
         layouth.addStretch()
+
+        ### The data selectors
+
+        layoutg = QGridLayout()
+        layoutv.addLayout(layoutg)
+        for source_num in range(self._max_plot_items):
+            frame = QGroupBox(f'Plot #{source_num+1}')
+            layoutf = QVBoxLayout(frame)
+            row = source_num // 4
+            column = source_num % 4
+            layoutg.addWidget(frame, row, column)
+            layoutf.addWidget(QLabel('Measurement:'))
+            combo = QComboBox()
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+            combo.source_num = source_num
+            self._plot_y_source_combos.append(combo)
+            combo.activated.connect(self._on_y_source_selection)
+            layoutf.addWidget(combo)
 
         self._update_widgets()
 
@@ -198,14 +223,40 @@ class PlotXYWindow(QWidget):
         self._update_axes()
         self.update()
 
+    def _on_y_source_selection(self, sel):
+        """Handle selection of a Y source."""
+        combo = self.sender()
+        source_num = combo.source_num
+        self._plot_y_sources[source_num] = combo.itemData(sel)
+        self._update_axes()
+        self.update()
+
     def _update_widgets(self):
         """Update the control widgets based on currently available measurements."""
+        # Duration selection
+        for index in range(self._widget_duration.count()):
+            if self._widget_duration.itemData(index) == self._plot_duration:
+                self._widget_duration.setCurrentIndex(index)
+                break
+
         # X axis selections
         self._widget_x_axis_combo.clear()
         self._widget_x_axis_combo.addItem('Elapsed Time', userData='Elapsed Time')
         self._widget_x_axis_combo.addItem('Absolute Time', userData='Absolute Time')
-        for key, name in self._main_window._measurement_names.items():
+        for index, (key, name) in enumerate(self._main_window._measurement_names.items()):
             self._widget_x_axis_combo.addItem(name, userData=key)
+            if key == self._plot_x_source:
+                combo.setCurrentIndex(index)
+
+        # Y axis selections
+        for source_num, combo in enumerate(self._plot_y_source_combos):
+            combo.clear()
+            combo.addItem('Not used', userData=None)
+            for index, (key, name) in enumerate(
+                                self._main_window._measurement_names.items()):
+                combo.addItem(name, userData=key)
+                if key == self._plot_y_sources[source_num]:
+                    combo.setCurrentIndex(index)
 
     def _on_update_views(self):
         """Resize the plot."""
@@ -214,61 +265,73 @@ class PlotXYWindow(QWidget):
 
     def update(self):
         """Update the plot using the current measurements."""
-        start_time = self._main_window._measurement_start_time
-        stop_time = max(self._main_window._measurement_times[x][-1]
-                        for x in self._main_window._measurement_times.keys())
+        if len(self._main_window._measurement_times) == 0:
+            for plot_item in self._plot_items:
+                plot_item.setData([], [])
+            return
+
+        start_time = self._main_window._measurement_times[0]
+        stop_time = self._main_window._measurement_times[-1]
 
         # Update X axis range
         x_min = start_time
         x_max = stop_time
         x_scale = 1
         x_unit = 'sec'
+        times = np.array(self._main_window._measurement_times)
+
+        mask = None
         if x_max - x_min < self._plot_duration:
+            # We have less data than the requested duration - no mask
             x_max = x_min + self._plot_duration
         else:
             x_min = x_max - self._plot_duration
+            mask = times >= x_min
+            # Make sure that x_min corresponds to an actual data point
+            if np.any(mask):
+                x_min = times[mask][0]
+                x_max = x_min + self._plot_duration
+
+        scatter = False
+        if mask is None:
+            times_mask = times
+        else:
+            times_mask = times[mask]
         match self._plot_x_source:
             case 'Elapsed Time':
-                x_min -= start_time
-                x_max -= start_time
-                if 60 < self._plot_duration <= 60*60:
+                if 60 < self._plot_duration <= 60*60*3:
                     x_unit = 'min'
                     x_scale = 60
-                elif 60*60 < self._plot_duration:
+                elif 60*60*3 < self._plot_duration < 60*60*24*3:
                     x_unit = 'hour'
                     x_scale = 60*60
+                elif 60*60*24*3 < self._plot_duration:
+                    x_unit = 'day'
+                    x_scale = 60*60*24
                 self._plot_x_axis_item.setLabel(f'Elapsed Time ({x_unit})')
+                x_min -= start_time
+                x_max -= start_time
                 x_min /= x_scale
                 x_max /= x_scale
+                x_vals = (times_mask - start_time) / x_scale
             case 'Absolute Time':
                 # This will autoscale nicely
-                pass
+                x_vals = times_mask
             case _:
                 x_scale = None
+                scatter = True
+                x_vals = np.array(self._main_window._measurements[self._plot_x_source])
+                if mask is not None:
+                    x_vals = x_vals[mask]
         if x_scale is not None:
-            self._plot_viewboxes[0].setRange(xRange=(x_min, x_max))
+            self._plot_viewboxes[0].setRange(xRange=(x_min, x_max), padding=0)
 
         for plot_num in range(self._max_plot_items):
-            source = self._plot_sources[plot_num]
-            if source is None:
-                continue
-            plot_key = ('SDL63', source)
+            plot_key = self._plot_y_sources[plot_num]
             plot_item = self._plot_items[plot_num]
-            scatter = False
-            mask = None
-            match self._plot_x_source:
-                case 'Elapsed Time':
-                    x_vals = (np.array(self._main_window._measurement_times[plot_key])-
-                              start_time) / x_scale
-                case 'Absolute Time':
-                    x_vals = np.array(self._main_window._measurement_times[plot_key])
-                case _:
-                    times = np.array(self._main_window._measurement_times[plot_key])
-                    mask = (x_min <= times) & (times <= x_max)
-                    x_vals = np.array(
-                        self._main_window._measurements[self._plot_x_source])
-                    x_vals = x_vals[mask]
-                    scatter = True
+            if plot_key is None:
+                plot_item.setData([], [])
+                continue
             y_vals = np.array(self._main_window._measurements[plot_key])
             if mask is not None:
                 y_vals = y_vals[mask]
@@ -286,6 +349,20 @@ class PlotXYWindow(QWidget):
                                   symbolPen=None, symbolBrush=symbol_color)
             else:
                 plot_item.setData([], [])
+
+    def measurements_changed(self):
+        """Called when the set of instruments/measurements changes."""
+        if (self._plot_x_source not in ('Elapsed Time', 'Absolute Time') and
+            self._plot_x_source not in self._main_window._measurements):
+            # The X source disappeared
+            self._plot_x_source = 'Elapsed Time'
+        for source_num in range(self._max_plot_items):
+            if self._plot_y_sources[source_num] not in self._main_window._measurements:
+                # The Y source disappeared
+                self._plot_y_sources[source_num] = None
+        self._update_widgets()
+        self._update_axes()
+        self.update()
 
     def _update_axes(self):
         """Update the plot axes."""
@@ -310,13 +387,12 @@ class PlotXYWindow(QWidget):
             label = f'{m_name} ({m_unit})'
             self._master_plot_item.setLabel(axis='bottom', text=label)
         for plot_num in range(self._max_plot_items):
-            source = self._plot_sources[plot_num]
+            plot_key = self._plot_y_sources[plot_num]
             axis_item = self._plot_y_axis_items[plot_num]
-            if source is None:
+            if plot_key is None:
                 axis_item.hide()
                 continue
             axis_item.show()
-            plot_key = ('SDL63', source)
             plot_item = self._plot_items[plot_num]
             color = self._plot_colors[plot_num]
             m_name = self._main_window._measurement_names[plot_key]

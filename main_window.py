@@ -101,8 +101,7 @@ class MainWindow(QWidget):
         #           config widget class instance)
         self._open_resources = []
 
-        self._measurement_start_time = None
-        self._measurement_times = {}
+        self._measurement_times = []
         self._measurements = {}
         self._measurement_units = {}
         self._measurement_names = {}
@@ -199,8 +198,7 @@ class MainWindow(QWidget):
         if len(self._open_resources) == 0:
             return
         cur_time = time.time()
-        if self._measurement_start_time is None:
-            self._measurement_start_time = cur_time
+        self._measurement_times.append(cur_time)
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
                 measurements = config_widget.update_measurements()
@@ -208,11 +206,9 @@ class MainWindow(QWidget):
                     name = meas['name']
                     key = (inst.name, name)
                     if key not in self._measurements:
-                        self._measurement_times[key] = []
                         self._measurements[key] = []
                         self._measurement_units[key] = meas['unit']
                         self._measurement_names[key] = f'{inst.name}: {name}'
-                    self._measurement_times[key].append(cur_time)
                     val = meas['val']
                     if val is None:
                         val = math.nan
@@ -285,6 +281,16 @@ Copyright 2022, Robert S. French"""
         self._open_resources.append((resource_name, inst, config_widget))
         self._refresh_menubar_device_recent_resources()
 
+        measurements = config_widget.update_measurements(read_inst=False)
+        for meas_key, meas in measurements.items():
+            name = meas['name']
+            key = (inst.name, name)
+            self._measurements[key] = []
+            self._measurement_units[key] = meas['unit']
+            self._measurement_names[key] = f'{inst.name}: {name}'
+        for plot_widget in self._plot_window_widgets:
+            plot_widget.measurements_changed()
+
     def _menu_do_exit(self):
         """Perform the menu exit command."""
         sys.exit(0)
@@ -295,8 +301,18 @@ Copyright 2022, Robert S. French"""
         w.show()
         self._plot_window_widgets.append(w)
 
-    def _device_window_closed(self, resource_name):
+    def _device_window_closed(self, inst):
         """Update internal state when one of the configuration widgets is closed."""
-        idx = [x[0] for x in self._open_resources].index(resource_name)
+        idx = [x[0] for x in self._open_resources].index(inst.resource_name)
         del self._open_resources[idx]
         self._refresh_menubar_device_recent_resources()
+        for key in list(self._measurements): # Need list because we're modifying keys
+            if key[0] == inst.name:
+                del self._measurements[key]
+                del self._measurement_names[key]
+                del self._measurement_units[key]
+
+        for plot_widget in self._plot_window_widgets:
+            plot_widget.measurements_changed()
+
+# NEED A WAY TO QUERY MEASUREMENTS WITHOUT TRIGGERING AN INST READ

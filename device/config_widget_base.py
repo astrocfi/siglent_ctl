@@ -135,4 +135,4 @@ class ConfigureWidgetBase(QWidget):
 
     def closeEvent(self, event):
         self._inst.disconnect()
-        self._main_window._device_window_closed(self._inst._resource_name)
+        self._main_window._device_window_closed(self._inst)

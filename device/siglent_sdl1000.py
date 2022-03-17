@@ -77,6 +77,18 @@
 #   :PROGRAM:STATE:ON
 ################################################################################
 
+################################################################################
+# Known bugs in the SDL1000:
+#
+# - If you are in Battery/Current mode with the load on and change the current
+#   setting, the display will update but the current used will not actually
+#   change.
+# - If you are in List mode and you trigger during the final step, wait for the
+#   step to complete, then trigger again to restart the sequence, it will continue
+#   with the step past the end of the current # of steps (which is inactive)
+#   before returning to step 0.
+################################################################################
+
 
 import json
 import pprint
@@ -770,81 +782,86 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
-    def update_measurements(self):
+    def update_measurements(self, read_inst=True):
         """Read current values, update control panel display, return the values."""
         # Update the load on/off state in case we hit a protection limit
-        input_state = int(self._inst.query(':INPUT:STATE?'))
-        if self._param_state[':INPUT:STATE'] != input_state:
-            # No need to update the instrument, since it changed the state for us
-            self._update_load_state(input_state, update_inst=False)
+        if read_inst:
+            input_state = int(self._inst.query(':INPUT:STATE?'))
+            if self._param_state[':INPUT:STATE'] != input_state:
+                # No need to update the instrument, since it changed the state for us
+                self._update_load_state(input_state, update_inst=False)
 
         measurements = {}
 
-        w = self._widget_registry['MeasureV']
         voltage = None
-        if self._enable_measurement_v:
-            # Voltage is available regardless of the input state
-            voltage = self._inst.measure_voltage()
-            w.setText('%10.6f V' % voltage)
-        else:
-            w.setText('---   V')
+        if read_inst:
+            w = self._widget_registry['MeasureV']
+            if self._enable_measurement_v:
+                # Voltage is available regardless of the input state
+                voltage = self._inst.measure_voltage()
+                w.setText('%10.6f V' % voltage)
+            else:
+                w.setText('---   V')
         measurements['Voltage'] = {'name':  'Voltage',
                                    'unit':  'V',
                                    'val':   voltage}
 
-        w = self._widget_registry['MeasureC']
         current = None
-        if self._enable_measurement_c:
-            # Current is only available when the load is on
-            if not input_state:
-                w.setText('N/A   A')
+        if read_inst:
+            w = self._widget_registry['MeasureC']
+            if self._enable_measurement_c:
+                # Current is only available when the load is on
+                if not input_state:
+                    w.setText('N/A   A')
+                else:
+                    current = self._inst.measure_current()
+                    w.setText('%10.6f A' % current)
             else:
-                current = self._inst.measure_current()
-                w.setText('%10.6f A' % current)
-        else:
-            w.setText('---   A')
+                w.setText('---   A')
         measurements['Current'] = {'name':  'Current',
                                    'unit':  'A',
                                    'val':   current}
 
-        w = self._widget_registry['MeasureP']
         power = None
-        if self._enable_measurement_p:
-            # Power is only available when the load is on
-            if not input_state:
-                w.setText('N/A   W')
+        if read_inst:
+            w = self._widget_registry['MeasureP']
+            if self._enable_measurement_p:
+                # Power is only available when the load is on
+                if not input_state:
+                    w.setText('N/A   W')
+                else:
+                    power = self._inst.measure_power()
+                    w.setText('%10.6f W' % power)
             else:
-                power = self._inst.measure_power()
-                w.setText('%10.6f W' % power)
-        else:
-            w.setText('---   W')
+                w.setText('---   W')
         measurements['Power'] = {'name':  'Power',
                                  'unit':  'W',
                                  'val':   power}
 
-        w = self._widget_registry['MeasureR']
         resistance = None
-        if self._enable_measurement_r:
-            # Resistance is only available when the load is on
-            if not input_state:
-                w.setText('N/A   \u2126')
-            else:
-                resistance = self._inst.measure_resistance()
-                if resistance < 10:
-                    fmt = '%8.6f'
-                elif resistance < 100:
-                    fmt = '%8.5f'
-                elif resistance < 1000:
-                    fmt = '%8.4f'
-                elif resistance < 10000:
-                    fmt = '%8.3f'
-                elif resistance < 100000:
-                    fmt = '%8.2f'
+        if read_inst:
+            w = self._widget_registry['MeasureR']
+            if self._enable_measurement_r:
+                # Resistance is only available when the load is on
+                if not input_state:
+                    w.setText('N/A   \u2126')
                 else:
-                    fmt = '%8.1f'
-                w.setText(f'{fmt} \u2126' % resistance)
-        else:
-            w.setText('---   \u2126')
+                    resistance = self._inst.measure_resistance()
+                    if resistance < 10:
+                        fmt = '%8.6f'
+                    elif resistance < 100:
+                        fmt = '%8.5f'
+                    elif resistance < 1000:
+                        fmt = '%8.4f'
+                    elif resistance < 10000:
+                        fmt = '%8.3f'
+                    elif resistance < 100000:
+                        fmt = '%8.2f'
+                    else:
+                        fmt = '%8.1f'
+                    w.setText(f'{fmt} \u2126' % resistance)
+            else:
+                w.setText('---   \u2126')
         measurements['Resistance'] = {'name':  'Resistance',
                                       'unit':  '\u2126',
                                       'val':   resistance}
@@ -853,32 +870,33 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         disch_cap = None
         add_cap = None
         total_cap = None
-        if self._cur_overall_mode == 'Battery':
-            # Battery measurements are available regardless of load state
-            if self._batt_log_initial_voltage is None:
-                self._batt_log_initial_voltage = voltage
-            disch_time = self._inst.measure_battery_time()
-            m, s = divmod(disch_time, 60)
-            h, m = divmod(m, 60)
-            w = self._widget_registry['MeasureBattTime']
-            w.setText('%02d:%02d:%02d' % (h, m, s))
+        if read_inst:
+            if self._cur_overall_mode == 'Battery':
+                # Battery measurements are available regardless of load state
+                if self._batt_log_initial_voltage is None:
+                    self._batt_log_initial_voltage = voltage
+                disch_time = self._inst.measure_battery_time()
+                m, s = divmod(disch_time, 60)
+                h, m = divmod(m, 60)
+                w = self._widget_registry['MeasureBattTime']
+                w.setText('%02d:%02d:%02d' % (h, m, s))
 
-            w = self._widget_registry['MeasureBattCap']
-            disch_cap = self._inst.measure_battery_capacity()
-            w.setText('%d mAh' % disch_cap)
+                w = self._widget_registry['MeasureBattCap']
+                disch_cap = self._inst.measure_battery_capacity()
+                w.setText('%d mAh' % disch_cap)
 
-            w = self._widget_registry['MeasureBattAddCap']
-            add_cap = self._inst.measure_battery_add_capacity()
-            w.setText('Addl Cap: %6d mAh' % add_cap)
+                w = self._widget_registry['MeasureBattAddCap']
+                add_cap = self._inst.measure_battery_add_capacity()
+                w.setText('Addl Cap: %6d mAh' % add_cap)
 
-            # When the LOAD is OFF, we have already updated the ADDCAP to include the
-            # current test results, so we don't want to add it in a second time
-            if input_state:
-                total_cap = disch_cap+add_cap
-            else:
-                total_cap = add_cap
-            w = self._widget_registry['MeasureBattTotalCap']
-            w.setText('Total Cap: %6d mAh' % total_cap)
+                # When the LOAD is OFF, we have already updated the ADDCAP to include the
+                # current test results, so we don't want to add it in a second time
+                if input_state:
+                    total_cap = disch_cap+add_cap
+                else:
+                    total_cap = add_cap
+                w = self._widget_registry['MeasureBattTotalCap']
+                w.setText('Total Cap: %6d mAh' % total_cap)
         measurements['Discharge Time'] = {'name':  'Batt Discharge Time',
                                           'unit':  's',
                                           'val':   disch_time}

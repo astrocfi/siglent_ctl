@@ -65,6 +65,10 @@ class Device(object):
     @property
     def long_name(self):
         return self._long_name
+
+    @property
+    def resource_name(self):
+        return self._resource_name
         
     def set_debug(self, val):
         self._debug = val
