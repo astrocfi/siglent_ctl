@@ -165,6 +165,13 @@ class MainWindow(QWidget):
         self.set_heartbeat_timer(1000)
         self._heartbeat_timer.start()
 
+    def closeEvent(self, event):
+        # Close all the sub-windows, allowing them to shut down peacefully
+        for resource_name, inst, config_widget in self._open_resources:
+            config_widget.close()
+        for widget in self._plot_window_widgets:
+            widget.close()
+
     def _refresh_menubar_device_recent_resources(self):
         """Update the text in the Recent Resources actions."""
         for num in range(self._max_recent_resources):
@@ -188,7 +195,9 @@ class MainWindow(QWidget):
         """Query all instruments and update all measurements and display widgets."""
         # Although technically each measurement takes place at a different time,
         # it's important that we treat each measurement group as being at a single
-        # time so we can match up measurements.
+        # time so we can match up measurements in X/Y plots and file saving.
+        if len(self._open_resources) == 0:
+            return
         cur_time = time.time()
         if self._measurement_start_time is None:
             self._measurement_start_time = cur_time
