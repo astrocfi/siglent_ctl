@@ -281,11 +281,12 @@ Copyright 2022, Robert S. French"""
         self._open_resources.append((resource_name, inst, config_widget))
         self._refresh_menubar_device_recent_resources()
 
+        num_existing = len(self._measurement_times)
         measurements = config_widget.update_measurements(read_inst=False)
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (inst.name, name)
-            self._measurements[key] = []
+            self._measurements[key] = [None] * num_existing
             self._measurement_units[key] = meas['unit']
             self._measurement_names[key] = f'{inst.name}: {name}'
         for plot_widget in self._plot_window_widgets:

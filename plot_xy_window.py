@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QApplication,
                              QComboBox,
                              QMenuBar, QMenu, QStatusBar,
+                             QColorDialog,
                              QDialog,
                              QDialogButtonBox,
                              QLabel,
@@ -44,7 +45,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QHBoxLayout,
                              QVBoxLayout,
                              QPlainTextEdit)
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QColor
 from PyQt6.QtCore import *
 
 import numpy as np
@@ -75,16 +76,19 @@ class PlotXYWindow(QWidget):
         self._main_window = main_window
         self.setWindowTitle(f'XY Plot')
 
-        self._max_plot_items = 4
+        self._max_plot_items = 8
+        self._plot_background_color = '#000000'
         self._plot_items = []
         self._plot_y_axis_items = []
         self._plot_x_axis_item = None
+        self._plot_x_axis_color = '#FFFFFF'
         self._plot_viewboxes = []
-        self._plot_colors = ['FF0000', 'FFFF00', '00FF00', '00FFFF', '3030FF',
-                             'FF00FF', 'FF8000', '80FF00']
+        self._plot_colors = ['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#3030FF',
+                             '#FF00FF', '#FF8000', '#C0C0C0']
+        self._plot_widths = [1] * self._max_plot_items
         self._plot_x_source_prev = None
         self._plot_x_source = 'Elapsed Time'
-        self._plot_y_sources = [None, None, None, None]
+        self._plot_y_sources = [None] * self._max_plot_items
         self._plot_y_source_combos = []
         self._plot_duration = 60 # Default to "1 min"
 
@@ -117,7 +121,7 @@ class PlotXYWindow(QWidget):
         # necessary:
         #   https://github.com/pyqtgraph/pyqtgraph/pull/1359
         pw = pg.GraphicsView()
-        # pw.setStyleSheet('padding: 10px;')
+        self._plot_graphics_view_widget = pw
         gl = pg.GraphicsLayout()
         pw.setCentralWidget(gl)
         layoutv.addWidget(pw)
@@ -144,7 +148,7 @@ class PlotXYWindow(QWidget):
             viewbox.enableAutoRange(axis=pg.ViewBox.XYAxes, enable=True)
 
         for i in range(self._max_plot_items):
-            pdi = pg.PlotDataItem([], [], pen=self._plot_colors[i])
+            pdi = pg.PlotDataItem([], [])
             self._plot_viewboxes[i].addItem(pdi)
             self._plot_items.append(pdi)
             self._plot_y_sources.append(None)
@@ -166,10 +170,16 @@ class PlotXYWindow(QWidget):
         label.setStyleSheet('margin-right: 5px;')
         layouth2.addWidget(label)
         combo = QComboBox()
+        combo.setStyleSheet('margin-right: 5px;')
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.activated.connect(self._on_x_axis_source)
         self._widget_x_axis_combo = combo
         layouth2.addWidget(self._widget_x_axis_combo)
+        button = QPushButton('')
+        layouth2.addWidget(button)
+        button.setStyleSheet(f'background-color: {self._plot_x_axis_color};')
+        button.source_num = 'X'
+        button.clicked.connect(self._on_click_color_selector)
 
         layouth.addStretch()
 
@@ -188,6 +198,20 @@ class PlotXYWindow(QWidget):
 
         layouth.addStretch()
 
+        # Background color selector
+        layouth2 = QHBoxLayout()
+        layouth.addLayout(layouth2)
+        label = QLabel('Background Color:')
+        label.setStyleSheet('margin-right: 5px;')
+        layouth2.addWidget(label)
+        button = QPushButton('')
+        layouth2.addWidget(button)
+        button.setStyleSheet(f'background-color: {self._plot_background_color};')
+        button.source_num = 'B'
+        button.clicked.connect(self._on_click_color_selector)
+
+        layouth.addStretch()
+
         ### The data selectors
 
         layoutg = QGridLayout()
@@ -198,6 +222,7 @@ class PlotXYWindow(QWidget):
             row = source_num // 4
             column = source_num % 4
             layoutg.addWidget(frame, row, column)
+
             layoutf.addWidget(QLabel('Measurement:'))
             combo = QComboBox()
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
@@ -205,6 +230,23 @@ class PlotXYWindow(QWidget):
             self._plot_y_source_combos.append(combo)
             combo.activated.connect(self._on_y_source_selection)
             layoutf.addWidget(combo)
+
+            layouth = QHBoxLayout()
+            layoutf.addLayout(layouth)
+            layouth.addWidget(QLabel('Line:'))
+            button = QPushButton('')
+            bgcolor = self._plot_colors[source_num]
+            layouth.addWidget(button)
+            layouth.addStretch()
+            button.setStyleSheet(f'background-color: {bgcolor};')
+            button.source_num = source_num
+            button.clicked.connect(self._on_click_color_selector)
+            combo = QComboBox()
+            combo.source_num = source_num
+            layouth.addWidget(combo)
+            for pix in range(1,9):
+                combo.addItem(str(pix), userData=pix)
+            combo.activated.connect(self._on_y_line_width_selection)
 
         self._update_widgets()
 
@@ -214,14 +256,12 @@ class PlotXYWindow(QWidget):
         self._plot_x_source_prev = self._plot_x_source
         self._plot_x_source = combo.itemData(sel)
         self._update_axes()
-        self.update()
 
     def _on_x_axis_duration(self, sel):
         """Handle selection of a new X axis duration."""
         combo = self.sender()
         self._plot_duration = combo.itemData(sel)
         self._update_axes()
-        self.update()
 
     def _on_y_source_selection(self, sel):
         """Handle selection of a Y source."""
@@ -229,6 +269,38 @@ class PlotXYWindow(QWidget):
         source_num = combo.source_num
         self._plot_y_sources[source_num] = combo.itemData(sel)
         self._update_axes()
+
+    def _on_click_color_selector(self):
+        """Handle color selector of a Y source."""
+        button = self.sender()
+        source_num = button.source_num
+        match source_num:
+            case 'X':
+                prev_color = self._plot_x_axis_color
+            case 'B':
+                prev_color = self._plot_background_color
+            case _:
+                prev_color = self._plot_colors[source_num]
+        color = QColorDialog.getColor(QColor(prev_color))
+        if not color.isValid():
+            return
+        rgb = color.name()
+        match source_num:
+            case 'X':
+                self._plot_x_axis_color = rgb
+            case 'B':
+                self._plot_background_color = rgb
+            case _:
+                self._plot_colors[source_num] = rgb
+        button.setStyleSheet(f'background-color: {rgb}')
+        self._update_axes()
+
+    def _on_y_line_width_selection(self, sel):
+        """Handle line width selector of a Y source."""
+        combo = self.sender()
+        source_num = combo.source_num
+        width = combo.itemData(sel)
+        self._plot_widths[source_num] = width
         self.update()
 
     def _update_widgets(self):
@@ -336,16 +408,17 @@ class PlotXYWindow(QWidget):
             if mask is not None:
                 y_vals = y_vals[mask]
             if scatter:
-                pen_color = None
+                pen = None
                 symbol_color = self._plot_colors[plot_num]
                 symbol = 'o'
             else:
-                pen_color = self._plot_colors[plot_num]
+                pen = pg.mkPen(QColor(self._plot_colors[plot_num]),
+                               width=self._plot_widths[plot_num])
                 symbol_color = None
                 symbol = None
             if not np.all(np.isnan(x_vals)) and not np.all(np.isnan(y_vals)):
                 plot_item.setData(x_vals, y_vals, connect='finite',
-                                  pen=pen_color, symbol=symbol,
+                                  pen=pen, symbol=symbol,
                                   symbolPen=None, symbolBrush=symbol_color)
             else:
                 plot_item.setData([], [])
@@ -362,10 +435,10 @@ class PlotXYWindow(QWidget):
                 self._plot_y_sources[source_num] = None
         self._update_widgets()
         self._update_axes()
-        self.update()
 
     def _update_axes(self):
-        """Update the plot axes."""
+        """Update the plot axes and background color."""
+        self._plot_graphics_view_widget.setBackground(self._plot_background_color)
         if (self._plot_x_source == 'Absolute Time' and
             self._plot_x_source != self._plot_x_source_prev):
             # Not Absolute -> Absolute
@@ -379,6 +452,8 @@ class PlotXYWindow(QWidget):
             self._plot_viewboxes[0].enableAutoRange()
             self._master_plot_item.setAxisItems({'bottom': self._plot_x_axis_item})
         self._plot_viewboxes[0].enableAutoRange()
+        self._plot_x_axis_item.setPen(self._plot_x_axis_color)
+        self._plot_x_axis_item.setTextPen(self._plot_x_axis_color)
         if self._plot_x_source in ('Elapsed Time', 'Absolute Time'):
             self._master_plot_item.setLabel(axis='bottom', text=self._plot_x_source)
         else:
@@ -400,3 +475,5 @@ class PlotXYWindow(QWidget):
             label = f'{m_name} ({m_unit})'
             axis_item.setLabel(label)
             axis_item.setPen(self._plot_colors[plot_num])
+            axis_item.setTextPen(self._plot_colors[plot_num])
+        self.update()
