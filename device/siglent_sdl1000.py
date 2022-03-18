@@ -897,16 +897,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     total_cap = add_cap
                 w = self._widget_registry['MeasureBattTotalCap']
                 w.setText('Total Cap: %6d mAh' % total_cap)
-        measurements['Discharge Time'] = {'name':  'Batt Discharge Time',
+        measurements['Discharge Time'] = {'name':  'Batt Dischg Time',
                                           'unit':  's',
                                           'val':   disch_time}
         measurements['Capacity'] =       {'name':  'Batt Capacity',
                                           'unit':  'mAh',
                                           'val':   disch_cap}
-        measurements['Addl Capacity'] =  {'name':  'Batt Addl Capacity',
+        measurements['Addl Capacity'] =  {'name':  'Batt Addl Cap',
                                           'unit':  'mAh',
                                           'val':   add_cap}
-        measurements['Total Capacity'] = {'name':  'Batt Total Capacity',
+        measurements['Total Capacity'] = {'name':  'Batt Total Cap',
                                           'unit':  'mAh',
                                           'val':   total_cap}
 

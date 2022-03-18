@@ -69,6 +69,25 @@ _TIME_DURATIONS = (('15 seconds', 15),
                    ('1 week', 60*60*24*7),
                    ('4 weeks', 60*60*24*7*4))
 
+_LINE_STYLES = (('Solid', Qt.PenStyle.SolidLine),
+                ('Dash', Qt.PenStyle.DashLine),
+                ('Dot', Qt.PenStyle.DotLine),
+                ('Dash-Dot', Qt.PenStyle.DashDotLine),
+                ('Dash-Dot-Dot', Qt.PenStyle.DashDotDotLine))
+
+_MARKER_SYMBOLS = (('Circle', 'o'),
+                   ('Tri-down', 't'),
+                   ('Tri-up', 't1'),
+                   ('Tri-right', 't2'),
+                   ('Tri-left', 't3'),
+                   ('Square', 's'),
+                   ('Pentagon', 'p'),
+                   ('Hexagon', 'h'),
+                   ('Star', 'star'),
+                   ('Plus', '+'),
+                   ('Diamond', 'd'),
+                   ('Cross', 'x'))
+
 class PlotXYWindow(QWidget):
     """The main window of the entire application."""
     def __init__(self, main_window):
@@ -86,6 +105,9 @@ class PlotXYWindow(QWidget):
         self._plot_colors = ['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#3030FF',
                              '#FF00FF', '#FF8000', '#C0C0C0']
         self._plot_widths = [1] * self._max_plot_items
+        self._plot_line_styles = [Qt.PenStyle.SolidLine] * self._max_plot_items
+        self._plot_marker_sizes = [3] * self._max_plot_items
+        self._plot_marker_styles = ['o'] * self._max_plot_items
         self._plot_x_source_prev = None
         self._plot_x_source = 'Elapsed Time'
         self._plot_y_sources = [None] * self._max_plot_items
@@ -102,15 +124,15 @@ class PlotXYWindow(QWidget):
 
         ### Create the menu bar
 
-        self._menubar = QMenuBar()
-        self._menubar.setStyleSheet('margin: 0px; padding: 0px;')
-
-        self._menubar_help = self._menubar.addMenu('&Help')
-        action = QAction('&About', self)
-        # action.triggered.connect(self._menu_do_about)
-        self._menubar_help.addAction(action)
-
-        layoutv.addWidget(self._menubar)
+        # self._menubar = QMenuBar()
+        # self._menubar.setStyleSheet('margin: 0px; padding: 0px;')
+        #
+        # self._menubar_help = self._menubar.addMenu('&Help')
+        # action = QAction('&About', self)
+        # # action.triggered.connect(self._menu_do_about)
+        # self._menubar_help.addAction(action)
+        #
+        # layoutv.addWidget(self._menubar)
 
         ### The plot
 
@@ -167,17 +189,18 @@ class PlotXYWindow(QWidget):
         layouth2 = QHBoxLayout()
         layouth.addLayout(layouth2)
         label = QLabel('X Axis:')
-        label.setStyleSheet('margin-right: 5px;')
         layouth2.addWidget(label)
+        layouth2.addSpacing(5)
         combo = QComboBox()
-        combo.setStyleSheet('margin-right: 5px;')
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.activated.connect(self._on_x_axis_source)
         self._widget_x_axis_combo = combo
         layouth2.addWidget(self._widget_x_axis_combo)
+        layouth2.addSpacing(5)
         button = QPushButton('')
         layouth2.addWidget(button)
-        button.setStyleSheet(f'background-color: {self._plot_x_axis_color};')
+        button.setStyleSheet(
+            f'background-color: {self._plot_x_axis_color}; max-width: 1.5em;')
         button.source_num = 'X'
         button.clicked.connect(self._on_click_color_selector)
 
@@ -187,8 +210,8 @@ class PlotXYWindow(QWidget):
         layouth2 = QHBoxLayout()
         layouth.addLayout(layouth2)
         label = QLabel('View Last:')
-        label.setStyleSheet('margin-right: 5px;')
         layouth2.addWidget(label)
+        layouth2.addSpacing(5)
         combo = QComboBox()
         combo.activated.connect(self._on_x_axis_duration)
         self._widget_duration = combo
@@ -202,11 +225,12 @@ class PlotXYWindow(QWidget):
         layouth2 = QHBoxLayout()
         layouth.addLayout(layouth2)
         label = QLabel('Background Color:')
-        label.setStyleSheet('margin-right: 5px;')
         layouth2.addWidget(label)
+        layouth2.addSpacing(5)
         button = QPushButton('')
         layouth2.addWidget(button)
-        button.setStyleSheet(f'background-color: {self._plot_background_color};')
+        button.setStyleSheet(
+            f'background-color: {self._plot_background_color}; max-width: 1.5em;')
         button.source_num = 'B'
         button.clicked.connect(self._on_click_color_selector)
 
@@ -223,30 +247,51 @@ class PlotXYWindow(QWidget):
             column = source_num % 4
             layoutg.addWidget(frame, row, column)
 
-            layoutf.addWidget(QLabel('Measurement:'))
+            layouth = QHBoxLayout()
+            layoutf.addLayout(layouth)
+            button = QPushButton('')
+            bgcolor = self._plot_colors[source_num]
+            button.setStyleSheet(f'background-color: {bgcolor}; max-width: 1.5em;')
+            button.source_num = source_num
+            button.clicked.connect(self._on_click_color_selector)
+            layouth.addWidget(button)
             combo = QComboBox()
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
             combo.source_num = source_num
             self._plot_y_source_combos.append(combo)
             combo.activated.connect(self._on_y_source_selection)
-            layoutf.addWidget(combo)
-
-            layouth = QHBoxLayout()
-            layoutf.addLayout(layouth)
-            layouth.addWidget(QLabel('Line:'))
-            button = QPushButton('')
-            bgcolor = self._plot_colors[source_num]
-            layouth.addWidget(button)
+            layouth.addWidget(combo)
             layouth.addStretch()
-            button.setStyleSheet(f'background-color: {bgcolor};')
-            button.source_num = source_num
-            button.clicked.connect(self._on_click_color_selector)
+
+            layoutg2 = QGridLayout()
+            layoutf.addLayout(layoutg2)
+            layoutg2.addWidget(QLabel('Line:'), 0, 0)
             combo = QComboBox()
             combo.source_num = source_num
-            layouth.addWidget(combo)
+            layoutg2.addWidget(combo, 0, 1)
             for pix in range(1,9):
                 combo.addItem(str(pix), userData=pix)
             combo.activated.connect(self._on_y_line_width_selection)
+            combo = QComboBox()
+            combo.source_num = source_num
+            layoutg2.addWidget(combo, 0, 2)
+            for num, (name, style) in enumerate(_LINE_STYLES):
+                combo.addItem(name, userData=num)
+            combo.activated.connect(self._on_y_line_style_selection)
+
+            layoutg2.addWidget(QLabel('Scatter:'), 1, 0)
+            combo = QComboBox()
+            combo.source_num = source_num
+            layoutg2.addWidget(combo, 1, 1)
+            for pix in range(1,9):
+                combo.addItem(str(pix), userData=pix)
+            combo.activated.connect(self._on_y_marker_size_selection)
+            combo = QComboBox()
+            combo.source_num = source_num
+            layoutg2.addWidget(combo, 1, 2)
+            for num, (name, style) in enumerate(_MARKER_SYMBOLS):
+                combo.addItem(name, userData=num)
+            combo.activated.connect(self._on_y_marker_style_selection)
 
         self._update_widgets()
 
@@ -292,7 +337,7 @@ class PlotXYWindow(QWidget):
                 self._plot_background_color = rgb
             case _:
                 self._plot_colors[source_num] = rgb
-        button.setStyleSheet(f'background-color: {rgb}')
+        button.setStyleSheet(f'background-color: {rgb}; max-width: 1.5em;')
         self._update_axes()
 
     def _on_y_line_width_selection(self, sel):
@@ -301,6 +346,30 @@ class PlotXYWindow(QWidget):
         source_num = combo.source_num
         width = combo.itemData(sel)
         self._plot_widths[source_num] = width
+        self.update()
+
+    def _on_y_line_style_selection(self, sel):
+        """Handle line style selector of a Y source."""
+        combo = self.sender()
+        source_num = combo.source_num
+        style = combo.itemData(sel)
+        self._plot_line_styles[source_num] = _LINE_STYLES[style][1]
+        self.update()
+
+    def _on_y_marker_size_selection(self, sel):
+        """Handle marker size selector of a Y source."""
+        combo = self.sender()
+        source_num = combo.source_num
+        size = combo.itemData(sel)
+        self._plot_marker_sizes[source_num] = size
+        self.update()
+
+    def _on_y_marker_style_selection(self, sel):
+        """Handle marker style selector of a Y source."""
+        combo = self.sender()
+        source_num = combo.source_num
+        style = combo.itemData(sel)
+        self._plot_marker_styles[source_num] = _MARKER_SYMBOLS[style][1]
         self.update()
 
     def _update_widgets(self):
@@ -410,15 +479,18 @@ class PlotXYWindow(QWidget):
             if scatter:
                 pen = None
                 symbol_color = self._plot_colors[plot_num]
-                symbol = 'o'
+                symbol = self._plot_marker_styles[plot_num]
+                symbol_size = self._plot_marker_sizes[plot_num]*3
             else:
                 pen = pg.mkPen(QColor(self._plot_colors[plot_num]),
-                               width=self._plot_widths[plot_num])
+                               width=self._plot_widths[plot_num],
+                               style=self._plot_line_styles[plot_num])
                 symbol_color = None
                 symbol = None
+                symbol_size = None
             if not np.all(np.isnan(x_vals)) and not np.all(np.isnan(y_vals)):
                 plot_item.setData(x_vals, y_vals, connect='finite',
-                                  pen=pen, symbol=symbol,
+                                  pen=pen, symbol=symbol, symbolSize=symbol_size,
                                   symbolPen=None, symbolBrush=symbol_color)
             else:
                 plot_item.setData([], [])
