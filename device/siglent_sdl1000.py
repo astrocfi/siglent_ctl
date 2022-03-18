@@ -1899,11 +1899,21 @@ Copyright 2022, Robert S. French"""
                 self._inst.write(f':FUNCTION:TRANSIENT {const_mode}')
             case 'BASIC':
                 self._inst.write(f':FUNCTION {const_mode}')
+            case 'LED':
+                self._inst.write(f':FUNCTION LED')
             case 'BATTERY':
                 self._inst.write(':FUNCTION BATTERY')
                 self._inst.write(f':BATTERY:MODE {const_mode}')
+            case 'OCPT':
+                self._inst.write(':OCP:FUNC')
+            case 'OPPT':
+                self._inst.write(':OPP:FUNC')
+            case 'LIST':
+                self._inst.write(':LIST:STATE:ON')
+            case 'PROGRAM':
+                self._inst.write(':PROGRAM:STATE:ON')
             case _:
-                self._inst.write(f':FUNCTION {overall_mode}')
+                assert False, overall_mode
 
     def _update_state_from_param_state(self):
         """Update all internal state and widgets based on the current _param_state."""
