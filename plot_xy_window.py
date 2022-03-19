@@ -149,9 +149,9 @@ class PlotXYWindow(QWidget):
 
         pi = pg.PlotItem()
         self._master_plot_item = pi
+        pi.setMouseEnabled(x=False) # Disable panning
         v1 = pi.vb
-        v1.setDefaultPadding(0)
-        v1.sigResized.connect(self._on_update_views)
+        # v1.setDefaultPadding(0)
         gl.addItem(pi, row=2, col=self._max_plot_items, rowspan=1, colspan=1)
 
         self._plot_viewboxes.append(v1)
@@ -162,7 +162,7 @@ class PlotXYWindow(QWidget):
             self._plot_y_axis_items.append(axis_item)
             gl.addItem(axis_item, row=2, col=self._max_plot_items-i,
                        rowspan=1, colspan=1)
-            viewbox = pg.ViewBox(defaultPadding=0)
+            viewbox = pg.ViewBox() #defaultPadding=0)
             viewbox.setXLink(self._plot_viewboxes[-1])
             self._plot_viewboxes.append(viewbox)
             gl.scene().addItem(viewbox)
@@ -174,6 +174,17 @@ class PlotXYWindow(QWidget):
             self._plot_viewboxes[i].addItem(pdi)
             self._plot_items.append(pdi)
             self._plot_y_sources.append(None)
+
+        # Do this last so all the variables are initialized before it's call the
+        # first time.
+        v1.sigResized.connect(self._on_update_views)
+
+        # Clean up the right-click menus, since most of these don't work for us
+        for vb in self._plot_viewboxes:
+            for action in vb.menu.actions():
+                if action.text() in ('View All', 'X axis', 'Mouse Mode'):
+                    action.setVisible(False)
+        self._master_plot_item.ctrlMenu.menuAction().setVisible(False)
 
         self._on_update_views()
         self._update_axes()
@@ -331,12 +342,15 @@ class PlotXYWindow(QWidget):
 
     def _on_click_all_measurements(self):
         """Handle Show All button."""
-        m_keys = list(self._main_window._measurements.keys())
-        print(m_keys)
-        num_items = min(self._max_plot_items, len(m_keys))
-        for source_num in range(num_items):
-            self._plot_y_sources[source_num] = m_keys[source_num]
-        for source_num in range(num_items, self._max_plot_items):
+        source_num = 0
+        for key in self._main_window._measurements:
+            if np.all(np.isnan(self._main_window._measurements[key])):
+                continue
+            self._plot_y_sources[source_num] = key
+            source_num += 1
+            if source_num >= self._max_plot_items:
+                break
+        for source_num in range(source_num, self._max_plot_items):
             self._plot_y_sources[source_num] = None
         self._update_widgets()
         self._update_axes()
@@ -436,6 +450,15 @@ class PlotXYWindow(QWidget):
         """Resize the plot."""
         for viewbox in self._plot_viewboxes[1:]:
             viewbox.setGeometry(self._plot_viewboxes[0].sceneBoundingRect())
+        # The axes other than the one in the main plot viewbox extend the full
+        # height of the GraphicsLayout, not leaving room for the X axis. This means
+        # that the numbers on the axes don't actually line up with the graph.
+        # We force the axes to be shorter here using the size of the main plot
+        # ViewBox.
+        geo = self._plot_viewboxes[0].screenGeometry()
+        axis_height = geo.height()
+        for axis_item in self._plot_y_axis_items[1:]:
+            axis_item.setMaximumHeight(axis_height)
 
     def update(self):
         """Update the plot using the current measurements."""
