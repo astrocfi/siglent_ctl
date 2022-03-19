@@ -157,11 +157,16 @@ class PlotXYWindow(QWidget):
         self._plot_viewboxes.append(v1)
         self._plot_y_axis_items.append(pi.getAxis('left'))
         for i in range(1, self._max_plot_items):
-            axis_item = pg.AxisItem('left')
+            if i < self._max_plot_items // 2:
+                orientation = 'left'
+                col = self._max_plot_items-i
+            else:
+                orientation = 'right'
+                col = self._max_plot_items // 2 + i + 1
+            axis_item = pg.AxisItem(orientation)
             # axis_item.hide()
             self._plot_y_axis_items.append(axis_item)
-            gl.addItem(axis_item, row=2, col=self._max_plot_items-i,
-                       rowspan=1, colspan=1)
+            gl.addItem(axis_item, row=2, col=col, rowspan=1, colspan=1)
             viewbox = pg.ViewBox() #defaultPadding=0)
             viewbox.setXLink(self._plot_viewboxes[-1])
             self._plot_viewboxes.append(viewbox)
@@ -202,18 +207,18 @@ class PlotXYWindow(QWidget):
         label = QLabel('X Axis:')
         layouth2.addWidget(label)
         layouth2.addSpacing(5)
-        combo = QComboBox()
-        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        combo.activated.connect(self._on_x_axis_source)
-        self._widget_x_axis_combo = combo
-        layouth2.addWidget(self._widget_x_axis_combo)
-        layouth2.addSpacing(5)
         button = QPushButton('')
         layouth2.addWidget(button)
         button.setStyleSheet(
             f'background-color: {self._plot_x_axis_color}; max-width: 1.5em;')
         button.source_num = 'X'
         button.clicked.connect(self._on_click_color_selector)
+        layouth2.addSpacing(5)
+        combo = QComboBox()
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.activated.connect(self._on_x_axis_source)
+        self._widget_x_axis_combo = combo
+        layouth2.addWidget(self._widget_x_axis_combo)
 
         layouth.addStretch()
 
@@ -266,7 +271,10 @@ class PlotXYWindow(QWidget):
         layoutg.setVerticalSpacing(0)
         layoutv.addLayout(layoutg)
         for source_num in range(self._max_plot_items):
-            frame = QGroupBox(f'Plot #{source_num+1}')
+            orientation = 'Left'
+            if source_num >= self._max_plot_items // 2:
+                orientation = 'Right'
+            frame = QGroupBox(f'Plot #{source_num+1} ({orientation})')
             layoutf = QVBoxLayout(frame)
             row = source_num // 4
             column = source_num % 4
@@ -600,8 +608,7 @@ class PlotXYWindow(QWidget):
             color = self._plot_colors[plot_num]
             m_name = self._main_window._measurement_names[plot_key]
             m_unit = self._main_window._measurement_units[plot_key]
-            label = f'{m_name} ({m_unit})'
-            axis_item.setLabel(label)
+            axis_item.setLabel(m_name, units=m_unit) # Allow SI adjustment
             axis_item.setPen(self._plot_colors[plot_num])
             axis_item.setTextPen(self._plot_colors[plot_num])
         self.update()

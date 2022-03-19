@@ -883,11 +883,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
                 w = self._widget_registry['MeasureBattCap']
                 disch_cap = self._inst.measure_battery_capacity()
-                w.setText('%d mAh' % disch_cap)
+                w.setText('%7.3f Ah' % disch_cap)
 
                 w = self._widget_registry['MeasureBattAddCap']
                 add_cap = self._inst.measure_battery_add_capacity()
-                w.setText('Addl Cap: %6d mAh' % add_cap)
+                w.setText('Addl Cap: %7.3f Ah' % add_cap)
 
                 # When the LOAD is OFF, we have already updated the ADDCAP to include the
                 # current test results, so we don't want to add it in a second time
@@ -896,18 +896,18 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 else:
                     total_cap = add_cap
                 w = self._widget_registry['MeasureBattTotalCap']
-                w.setText('Total Cap: %6d mAh' % total_cap)
+                w.setText('Total Cap: %7.3f Ah' % total_cap)
         measurements['Discharge Time'] = {'name':  'Batt Dischg Time',
                                           'unit':  's',
                                           'val':   disch_time}
         measurements['Capacity'] =       {'name':  'Batt Capacity',
-                                          'unit':  'mAh',
+                                          'unit':  'Ah',
                                           'val':   disch_cap}
         measurements['Addl Capacity'] =  {'name':  'Batt Addl Cap',
-                                          'unit':  'mAh',
+                                          'unit':  'Ah',
                                           'val':   add_cap}
         measurements['Total Capacity'] = {'name':  'Batt Total Cap',
-                                          'unit':  'mAh',
+                                          'unit':  'Ah',
                                           'val':   total_cap}
 
         return measurements
@@ -2548,10 +2548,10 @@ class InstrumentSiglentSDL1000(Device4882):
         return float(self.query(':BATTERY:DISCHA:TIMER?'))
 
     def measure_battery_capacity(self):
-        return float(self.query(':BATTERY:DISCHA:CAP?'))
+        return float(self.query(':BATTERY:DISCHA:CAP?')) / 1000
 
     def measure_battery_add_capacity(self):
-        return float(self.query(':BATTERY:ADDCAP?'))
+        return float(self.query(':BATTERY:ADDCAP?')) / 1000
 
     def measure_vcpr(self):
         return (self.measure_voltage(),
