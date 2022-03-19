@@ -952,7 +952,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout = QHBoxLayout()
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
-        self._widget_row_parameters = w;
+        self._widget_registry['ParametersRow'] = w;
 
         ### ROW 1, COLUMN 1 ###
 
@@ -1158,7 +1158,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.setContentsMargins(0, 0, 0, 0)
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
-        self._widget_row_trigger = w
+        self._widget_registry['TriggerRow'] = w
 
         ###### ROW 4, COLUMN 1 - SHORT ######
 
@@ -1245,7 +1245,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.setContentsMargins(0, 0, 0, 0)
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
-        self._widget_row_measurements = w;
+        self._widget_registry['MeasurementsRow'] = w;
 
         # Enable measurements, reset battery log button
         layoutv = QVBoxLayout()
@@ -1407,7 +1407,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
     def _menu_do_about(self):
         """Show the About box."""
-        msg = """Siglent SDL1000-series configuration widget.
+        msg = """Siglent SDL1000-series instrument interface.
+
+Supported instruments: SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E.
 
 Copyright 2022, Robert S. French"""
         QMessageBox.about(self, 'About', msg)
@@ -1478,29 +1480,30 @@ Copyright 2022, Robert S. French"""
         report = self._batt_log_report()
         if report is None:
             report = 'No current battery log.'
-        print(report)
         self._printable_text_dialog('Battery Discharge Report', report)
 
     def _menu_do_view_parameters(self, state):
         """Toggle visibility of the parameters row."""
         if state:
-            self._widget_row_parameters.show()
+            self._widget_registry['ParametersRow'].show()
+            self._widget_registry['ListRow'].show()
         else:
-            self._widget_row_parameters.hide()
+            self._widget_registry['ParametersRow'].hide()
+            self._widget_registry['ListRow'].hide()
 
     def _menu_do_view_load_trigger(self, state):
         """Toggle visibility of the short/load/trigger row."""
         if state:
-            self._widget_row_trigger.show()
+            self._widget_registry['TriggerRow'].show()
         else:
-            self._widget_row_trigger.hide()
+            self._widget_registry['TriggerRow'].hide()
 
     def _menu_do_view_measurements(self, state):
         """Toggle visibility of the measurements row."""
         if state:
-            self._widget_row_measurements.show()
+            self._widget_registry['MeasurementsRow'].show()
         else:
-            self._widget_row_measurements.hide()
+            self._widget_registry['MeasurementsRow'].hide()
 
     def _on_click_overall_mode(self):
         """Handle clicking on an Overall Mode button."""
@@ -2366,7 +2369,6 @@ List status tracking is an approximation."""
 
     def _update_list_table_heartbeat(self):
         """Handle the rapid heartbeat when in List mode to update the highlighting."""
-        print('THB')
         if self._list_mode_running:
             cur_time = time.time()
             delta = cur_time - self._list_mode_cur_step_start_time

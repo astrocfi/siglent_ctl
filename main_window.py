@@ -27,15 +27,20 @@ import time
 
 from PyQt6.QtWidgets import (QDialog,
                              QDialogButtonBox,
+                             QDoubleSpinBox,
+                             QGroupBox,
+                             QHBoxLayout,
+                             QLabel,
                              QLayout,
                              QLineEdit,
                              QMenuBar,
                              QMessageBox,
+                             QPushButton,
                              QVBoxLayout,
                              QWidget,
                             )
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer
 
 import pyvisa
 
@@ -112,13 +117,15 @@ class MainWindow(QWidget):
 
         self._plot_window_widgets = []
 
+        self._paused = False
+
         ### Layout the widgets
 
-        layoutv = QVBoxLayout()
-        layoutv.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(layoutv)
-        layoutv.setSpacing(0)
-        layoutv.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+        layouttopv = QVBoxLayout()
+        layouttopv.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layouttopv)
+        layouttopv.setSpacing(0)
+        layouttopv.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
         ### Create the menu bar
 
@@ -155,14 +162,84 @@ class MainWindow(QWidget):
         action.triggered.connect(self._menu_do_about)
         self._menubar_help.addAction(action)
 
-        layoutv.addWidget(self._menubar)
-        central_widget = QWidget()
-        layoutv.addWidget(central_widget)
+        layouttopv.addWidget(self._menubar)
+
+        layoutv = QVBoxLayout()
+        layoutv.setContentsMargins(11, 11, 11, 11)
+        layouttopv.addLayout(layoutv)
+        layouth = QHBoxLayout()
+        layoutv.addLayout(layouth)
+
+        frame = QGroupBox('Measurement')
+        frame.setStyleSheet("""QGroupBox { min-width: 11em; max-width: 11em; }""")
+        layoutv2 = QVBoxLayout(frame)
+        layouth.addWidget(frame)
+
+        layouth2 = QHBoxLayout()
+        layoutv2.addLayout(layouth2)
+        layouth2.addWidget(QLabel('Interval:'))
+        input = QDoubleSpinBox()
+        layouth2.addWidget(input)
+        input.setAlignment(Qt.AlignmentFlag.AlignRight)
+        input.setDecimals(1)
+        input.setRange(0.5, 60)
+        input.setSuffix(' s')
+        input.setValue(1)
+        input.setSingleStep(0.5)
+        input.editingFinished.connect(self._on_interval_changed)
+        layouth2.addWidget(input)
+        layouth2.addStretch()
+
+        layouth2 = QHBoxLayout()
+        layoutv2.addLayout(layouth2)
+        button = QPushButton('Erase All')
+        layouth2.addWidget(button)
+        button.clicked.connect(self._on_erase_all)
+        button = QPushButton('\u23F8 Pause')
+        layouth2.addWidget(button)
+        button.clicked.connect(self._on_pause_go)
+        layouth2.addStretch()
+
+        self._widget_measurement_started = QLabel('Started: N/A')
+        layoutv2.addWidget(self._widget_measurement_started)
+        self._widget_measurement_elapsed = QLabel('Elapsed: N/A')
+        layoutv2.addWidget(self._widget_measurement_elapsed)
+        self._widget_measurement_points = QLabel('# Data Points: 0')
+        layoutv2.addWidget(self._widget_measurement_points)
 
         self._heartbeat_timer = QTimer(self.app)
-        self._heartbeat_timer.timeout.connect(self.update)
-        self.set_heartbeat_timer(1000)
+        self._heartbeat_timer.timeout.connect(self._heartbeat_update)
+        self._heartbeat_timer.setInterval(1000)
         self._heartbeat_timer.start()
+
+        self._measurement_timer = QTimer(self.app)
+        self._measurement_timer.timeout.connect(self._update)
+        self._measurement_timer.setInterval(1000)
+        self._measurement_timer.start()
+
+    def _on_interval_changed(self):
+        """Handle a new value in the Measurement Interval input."""
+        input = self.sender()
+        self._measurement_timer.setInterval(int(input.value()*1000))
+
+    def _on_erase_all(self):
+        """Handle Erase All button."""
+        self._measurement_times = []
+        self._measurements = {}
+        self._measurement_units = {}
+        self._measurement_names = {}
+        self._update()
+
+    def _on_pause_go(self):
+        """Handle Pause/Go button."""
+        button = self.sender()
+        self._paused = not self._paused
+        if self._paused:
+            button.setText('\u23F5 Run')
+            button.setStyleSheet('background-color: #80ff40;')
+        else:
+            button.setText('\u23F8 Pause')
+            button.setStyleSheet('background-color: #ff8080;')
 
     def closeEvent(self, event):
         # Close all the sub-windows, allowing them to shut down peacefully
@@ -186,16 +263,34 @@ class MainWindow(QWidget):
             else:
                 action.setVisible(False)
 
-    def set_heartbeat_timer(self, timeout):
-        """Set the heartbeat timer to the given interval in ms."""
-        self._heartbeat_timer.setInterval(timeout)
+    @staticmethod
+    def _time_to_hms(t):
+        m, s = divmod(t, 60)
+        h, m = divmod(m, 60)
+        return '%02d:%02d:%02d' % (h, m, s)
 
-    def update(self):
+    def _heartbeat_update(self):
+        """Regular updates like the elapsed time."""
+        if len(self._measurement_times) == 0:
+            msg1 = 'Started: N/A'
+            msg2 = 'Elapsed: N/A'
+        else:
+            msg1 = ('Started: '+
+                    time.strftime('%Y %b %d %H:%M:%S',
+                                  time.localtime(self._measurement_times[0])))
+            msg2 = 'Elapsed: '+self._time_to_hms(self._measurement_times[-1] -
+                                                             self._measurement_times[0])
+        self._widget_measurement_started.setText(msg1)
+        self._widget_measurement_elapsed.setText(msg2)
+        npts = len(self._measurement_times)
+        self._widget_measurement_points.setText(f'# Data Points: {npts}')
+
+    def _update(self):
         """Query all instruments and update all measurements and display widgets."""
         # Although technically each measurement takes place at a different time,
         # it's important that we treat each measurement group as being at a single
         # time so we can match up measurements in X/Y plots and file saving.
-        if len(self._open_resources) == 0:
+        if len(self._open_resources) == 0 or self._paused:
             return
         cur_time = time.time()
         self._measurement_times.append(cur_time)

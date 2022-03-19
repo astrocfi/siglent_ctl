@@ -138,7 +138,6 @@ class PlotXYWindow(QWidget):
 
         # This complicated way to get a multi-axis plot is taken from here:
         # https://stackoverflow.com/questions/29473757/
-        #   pyqtgraph-multiple-y-axis-on-left-side
         # At some point this pull request will be approved, and all this won't be
         # necessary:
         #   https://github.com/pyqtgraph/pyqtgraph/pull/1359
@@ -151,6 +150,7 @@ class PlotXYWindow(QWidget):
         pi = pg.PlotItem()
         self._master_plot_item = pi
         v1 = pi.vb
+        v1.setDefaultPadding(0)
         v1.sigResized.connect(self._on_update_views)
         gl.addItem(pi, row=2, col=self._max_plot_items, rowspan=1, colspan=1)
 
@@ -162,7 +162,7 @@ class PlotXYWindow(QWidget):
             self._plot_y_axis_items.append(axis_item)
             gl.addItem(axis_item, row=2, col=self._max_plot_items-i,
                        rowspan=1, colspan=1)
-            viewbox = pg.ViewBox()
+            viewbox = pg.ViewBox(defaultPadding=0)
             viewbox.setXLink(self._plot_viewboxes[-1])
             self._plot_viewboxes.append(viewbox)
             gl.scene().addItem(viewbox)
@@ -236,9 +236,23 @@ class PlotXYWindow(QWidget):
 
         layouth.addStretch()
 
+        button = QPushButton('Show All')
+        layouth.addWidget(button)
+        button.clicked.connect(self._on_click_all_measurements)
+        button = QPushButton('Show None')
+        layouth.addWidget(button)
+        button.clicked.connect(self._on_click_no_measurements)
+
+        layouth.addStretch()
+
+        # Plot all params button
+
         ### The data selectors
 
         layoutg = QGridLayout()
+        layoutg.setContentsMargins(11, 11, 11, 11)
+        layoutg.setHorizontalSpacing(7)
+        layoutg.setVerticalSpacing(0)
         layoutv.addLayout(layoutg)
         for source_num in range(self._max_plot_items):
             frame = QGroupBox(f'Plot #{source_num+1}')
@@ -313,6 +327,25 @@ class PlotXYWindow(QWidget):
         combo = self.sender()
         source_num = combo.source_num
         self._plot_y_sources[source_num] = combo.itemData(sel)
+        self._update_axes()
+
+    def _on_click_all_measurements(self):
+        """Handle Show All button."""
+        m_keys = list(self._main_window._measurements.keys())
+        print(m_keys)
+        num_items = min(self._max_plot_items, len(m_keys))
+        for source_num in range(num_items):
+            self._plot_y_sources[source_num] = m_keys[source_num]
+        for source_num in range(num_items, self._max_plot_items):
+            self._plot_y_sources[source_num] = None
+        self._update_widgets()
+        self._update_axes()
+
+    def _on_click_no_measurements(self):
+        """Handle Show None button."""
+        for source_num in range(self._max_plot_items):
+            self._plot_y_sources[source_num] = None
+        self._update_widgets()
         self._update_axes()
 
     def _on_click_color_selector(self):
@@ -397,7 +430,7 @@ class PlotXYWindow(QWidget):
                                 self._main_window._measurement_names.items()):
                 combo.addItem(name, userData=key)
                 if key == self._plot_y_sources[source_num]:
-                    combo.setCurrentIndex(index)
+                    combo.setCurrentIndex(index+1) # Account for "Not used"
 
     def _on_update_views(self):
         """Resize the plot."""

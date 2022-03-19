@@ -74,10 +74,7 @@ class ConfigureWidgetBase(QWidget):
         self._menubar = QMenuBar()
         self._menubar.setStyleSheet('margin: 0px; padding: 0px;')
 
-        self._menubar_configure = self._menubar.addMenu('&Configure')
-        action = QAction('&Refresh', self)
-        action.triggered.connect(self._menu_do_refresh_configuration)
-        self._menubar_configure.addAction(action)
+        self._menubar_configure = self._menubar.addMenu('&Configuration')
         action = QAction('&Load...', self)
         action.triggered.connect(self._menu_do_load_configuration)
         self._menubar_configure.addAction(action)
@@ -86,6 +83,9 @@ class ConfigureWidgetBase(QWidget):
         self._menubar_configure.addAction(action)
         action = QAction('Reset device to &default', self)
         action.triggered.connect(self._menu_do_reset_device)
+        self._menubar_configure.addAction(action)
+        action = QAction('&Refresh', self)
+        action.triggered.connect(self._menu_do_refresh_configuration)
         self._menubar_configure.addAction(action)
 
         self._menubar_device = self._menubar.addMenu('&Device')
