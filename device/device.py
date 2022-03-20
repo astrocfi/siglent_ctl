@@ -24,8 +24,14 @@
 
 import pyvisa
 
-class NotConnectedError(Exception): pass
-class ContactLostError(Exception): pass
+
+class NotConnectedError(Exception):
+    pass
+
+
+class ContactLostError(Exception):
+    pass
+
 
 class Device(object):
     """Class representing any generic device accessible through VISA."""
@@ -69,7 +75,7 @@ class Device(object):
     @property
     def resource_name(self):
         return self._resource_name
-        
+
     def set_debug(self, val):
         self._debug = val
 
@@ -86,7 +92,6 @@ class Device(object):
         self._connected = True
         if self._debug:
             print(f'Connected to {self._resource_name}')
-
 
     ### Direct access to pyvisa functions
 
@@ -125,7 +130,7 @@ class Device(object):
             self.disconnect()
             raise ContactLostError
         if self._debug:
-            print(f'read "{s}" returned "{ret}"')
+            print(f'read returned "{ret}"')
         return ret
 
     def read_raw(self):
@@ -138,7 +143,7 @@ class Device(object):
             self.disconnect()
             raise ContactLostError
         if self._debug:
-            print(f'read_raw "{s}" returned "{ret}"')
+            print(f'read_raw returned "{ret}"')
         return ret
 
     def write(self, s, timeout=None):

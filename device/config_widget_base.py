@@ -22,27 +22,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
-import re
-
-from PyQt6.QtWidgets import (QWidget,
-                             QMenuBar, QMenu, QStatusBar,
-                             QDialog,
-                             QLabel,
-                             QLineEdit,
-                             QPushButton,
-                             QRadioButton,
-                             QAbstractSpinBox,
-                             QDoubleSpinBox,
-                             QSpinBox,
-                             QButtonGroup,
+from PyQt6.QtWidgets import (QDialog,
                              QLayout,
-                             QGridLayout,
-                             QGroupBox,
-                             QHBoxLayout,
+                             QMenuBar,
+                             QPlainTextEdit,
+                             QStatusBar,
                              QVBoxLayout,
-                             QPlainTextEdit)
+                             QWidget)
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import *
+
 
 class ConfigureWidgetBase(QWidget):
     def __init__(self, main_window, instrument):

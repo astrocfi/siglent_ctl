@@ -91,7 +91,6 @@
 
 
 import json
-import pprint
 import re
 import time
 
@@ -99,7 +98,6 @@ from PyQt6.QtWidgets import (QWidget,
                              QAbstractSpinBox,
                              QButtonGroup,
                              QCheckBox,
-                             QDialog,
                              QDoubleSpinBox,
                              QFileDialog,
                              QGridLayout,
@@ -107,18 +105,15 @@ from PyQt6.QtWidgets import (QWidget,
                              QHBoxLayout,
                              QLabel,
                              QLayout,
-                             QLineEdit,
                              QMessageBox,
                              QPushButton,
                              QRadioButton,
-                             QSpinBox,
                              QStyledItemDelegate,
                              QTableView,
                              QVBoxLayout)
 from PyQt6.QtGui import QAction, QColor
-from PyQt6.QtCore import Qt, QAbstractTableModel, QEvent, QTimer
+from PyQt6.QtCore import Qt, QAbstractTableModel, QTimer
 
-import numpy as np
 import pyqtgraph as pg
 
 from .device import Device4882
@@ -183,7 +178,7 @@ _SDL_OVERALL_MODES = {
 #           min/max pairs.
 # The "General" entry is a little special, since it doesn't pertain to a particular
 # mode combination. It is used as an addon to all other modes.
-_SDL_MODE_PARAMS = {
+_SDL_MODE_PARAMS = {  # noqa: E121,E501
     ('General'):
         {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
                      '~AuxParametersLabel_.*', '~AuxParameters_.*',
@@ -554,6 +549,7 @@ class DoubleSpinBoxDelegate(QStyledItemDelegate):
         val = index.model().data(index, Qt.ItemDataRole.EditRole)
         editor.setValue(val)
 
+
 class ListTableModel(QAbstractTableModel):
     """Table model for the List table."""
     def __init__(self, data_changed_callback):
@@ -697,7 +693,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._list_mode_timer = QTimer(self._main_window.app)
         self._list_mode_timer.timeout.connect(self._update_list_table_heartbeat)
         self._list_mode_timer.setInterval(250)
-
 
     ######################
     ### Public methods ###
@@ -880,7 +875,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 m, s = divmod(disch_time, 60)
                 h, m = divmod(m, 60)
                 w = self._widget_registry['MeasureBattTime']
-                w.setText(f'{h:02d}:{m:02d}:{s:02}')
+                w.setText(f'{int(h):02d}:{int(m):02d}:{int(s):02}')
 
                 w = self._widget_registry['MeasureBattCap']
                 disch_cap = self._inst.measure_battery_capacity()
@@ -901,10 +896,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         measurements['Discharge Time'] = {'name':  'Batt Dischg Time',
                                           'unit':  's',
                                           'val':   disch_time}
-        measurements['Capacity'] =       {'name':  'Batt Capacity',
+        measurements['Capacity'] =       {'name':  'Batt Capacity', # noqa: E222
                                           'unit':  'Ah',
                                           'val':   disch_cap}
-        measurements['Addl Capacity'] =  {'name':  'Batt Addl Cap',
+        measurements['Addl Capacity'] =  {'name':  'Batt Addl Cap', # noqa: E222
                                           'unit':  'Ah',
                                           'val':   add_cap}
         measurements['Total Capacity'] = {'name':  'Batt Total Cap',
@@ -912,7 +907,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                                           'val':   total_cap}
 
         return measurements
-
 
     ############################################################################
     ### Setup Window Layout
@@ -953,7 +947,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout = QHBoxLayout()
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
-        self._widget_registry['ParametersRow'] = w;
+        self._widget_registry['ParametersRow'] = w
 
         ### ROW 1, COLUMN 1 ###
 
@@ -1053,15 +1047,16 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 self._widget_registry['Range_'+mode+'_'+range_name.strip('VA')] = rb
 
         # Aux Parameters
-        frame = self._init_widgets_value_box('Aux Parameters', (
-                    ('Slew (rise)', 'BSlewPos', 'A/\u00B5s', 'SLEW:POSITIVE'),
-                    ('Slew (fall)', 'BSlewNeg', 'A/\u00B5s', 'SLEW:NEGATIVE'),
-                    ('Slew (rise)', 'TSlewPos', 'A/\u00B5s', 'TRANSIENT:SLEW:POSITIVE'),
-                    ('Slew (fall)', 'TSlewNeg', 'A/\u00B5s', 'TRANSIENT:SLEW:NEGATIVE'),
-                    ('I Min',       'OCPMIN',   'A',        'MIN'),
-                    ('I Max',       'OCPMAX',   'A',        'MAX'),
-                    ('P Min',       'OPPMIN',   'W',        'MIN'),
-                    ('P Max',       'OPPMAX',   'W',        'MAX')))
+        frame = self._init_widgets_value_box(
+            'Aux Parameters', (
+                ('Slew (rise)', 'BSlewPos', 'A/\u00B5s', 'SLEW:POSITIVE'),
+                ('Slew (fall)', 'BSlewNeg', 'A/\u00B5s', 'SLEW:NEGATIVE'),
+                ('Slew (rise)', 'TSlewPos', 'A/\u00B5s', 'TRANSIENT:SLEW:POSITIVE'),
+                ('Slew (fall)', 'TSlewNeg', 'A/\u00B5s', 'TRANSIENT:SLEW:NEGATIVE'),
+                ('I Min',       'OCPMIN',   'A',        'MIN'),
+                ('I Max',       'OCPMAX',   'A',        'MAX'),
+                ('P Min',       'OPPMIN',   'W',        'MIN'),
+                ('P Max',       'OPPMAX',   'W',        'MAX')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 5em; max-height: 5em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -1072,43 +1067,44 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         ### ROW 1, COLUMN 4 ###
 
         # Main Parameters
-        frame = self._init_widgets_value_box('Main Parameters', (
-                    ('Voltage',     'Voltage',      'V',      'LEVEL:IMMEDIATE'),
-                    ('Current',     'Current',      'A',      'LEVEL:IMMEDIATE'),
-                    ('Power',       'Power',        'W',      'LEVEL:IMMEDIATE'),
-                    ('Resistance',  'Resistance',   '\u2126', 'LEVEL:IMMEDIATE'),
-                    ('A Level',     'ALevelV',      'V',      'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelV',      'V',      'TRANSIENT:BLEVEL'),
-                    ('A Level',     'ALevelC',      'A',      'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelC',      'A',      'TRANSIENT:BLEVEL'),
-                    ('A Level',     'ALevelP',      'W',      'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelP',      'W',      'TRANSIENT:BLEVEL'),
-                    ('A Level',     'ALevelR',      '\u2126', 'TRANSIENT:ALEVEL'),
-                    ('B Level',     'BLevelR',      '\u2126', 'TRANSIENT:BLEVEL'),
-                    ('A Width',     'AWidth',       's',      'TRANSIENT:AWIDTH'),
-                    ('B Width',     'BWidth',       's',      'TRANSIENT:BWIDTH'),
-                    ('Width',       'Width',        's',      'TRANSIENT:BWIDTH'),
-                    ('Vo',          'LEDV',         'V',      'VOLTAGE'),
-                    ('Io',          'LEDC',         'A',      'CURRENT'),
-                    ('Rco',         'LEDR',         None,     'RCONF'),
-                    ('Current',     'BattC',        'A',      'LEVEL'),
-                    ('Power',       'BattP',        'W',      'LEVEL'),
-                    ('Resistance',  'BattR',        '\u2126', 'LEVEL'),
-                    ('*V Stop',     'BattVStop',    'V',      'VOLTAGE'),
-                    ('*Cap Stop',   'BattCapStop',  'mAh',    'CAP'),
-                    ('*Time Stop',  'BattTimeStop', 's',      'TIMER'),
-                    ('Von',         'OCPV',         'V',      'VOLTAGE'),
-                    ('I Start',     'OCPStart',     'A',      'START'),
-                    ('I End',       'OCPEnd',       'A',      'END'),
-                    ('I Step',      'OCPStep',      'A',      'STEP'),
-                    ('Step Delay',  'OCPDelay',     's',      'STEP:DELAY'),
-                    ('Prot V',      'OPPV',         'V',      'VOLTAGE'),
-                    ('P Start',     'OPPStart',     'W',      'START'),
-                    ('P End',       'OPPEnd',       'W',      'END'),
-                    ('P Step',      'OPPStep',      'W',      'STEP'),
-                    ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY'),
-                    ('# Steps',     'ListSteps',    None,     'STEP'),
-                    ('@Run Count',  'ListCount',    None,     'COUNT')))
+        frame = self._init_widgets_value_box(
+            'Main Parameters', (
+                ('Voltage',     'Voltage',      'V',      'LEVEL:IMMEDIATE'),
+                ('Current',     'Current',      'A',      'LEVEL:IMMEDIATE'),
+                ('Power',       'Power',        'W',      'LEVEL:IMMEDIATE'),
+                ('Resistance',  'Resistance',   '\u2126', 'LEVEL:IMMEDIATE'),
+                ('A Level',     'ALevelV',      'V',      'TRANSIENT:ALEVEL'),
+                ('B Level',     'BLevelV',      'V',      'TRANSIENT:BLEVEL'),
+                ('A Level',     'ALevelC',      'A',      'TRANSIENT:ALEVEL'),
+                ('B Level',     'BLevelC',      'A',      'TRANSIENT:BLEVEL'),
+                ('A Level',     'ALevelP',      'W',      'TRANSIENT:ALEVEL'),
+                ('B Level',     'BLevelP',      'W',      'TRANSIENT:BLEVEL'),
+                ('A Level',     'ALevelR',      '\u2126', 'TRANSIENT:ALEVEL'),
+                ('B Level',     'BLevelR',      '\u2126', 'TRANSIENT:BLEVEL'),
+                ('A Width',     'AWidth',       's',      'TRANSIENT:AWIDTH'),
+                ('B Width',     'BWidth',       's',      'TRANSIENT:BWIDTH'),
+                ('Width',       'Width',        's',      'TRANSIENT:BWIDTH'),
+                ('Vo',          'LEDV',         'V',      'VOLTAGE'),
+                ('Io',          'LEDC',         'A',      'CURRENT'),
+                ('Rco',         'LEDR',         None,     'RCONF'),
+                ('Current',     'BattC',        'A',      'LEVEL'),
+                ('Power',       'BattP',        'W',      'LEVEL'),
+                ('Resistance',  'BattR',        '\u2126', 'LEVEL'),
+                ('*V Stop',     'BattVStop',    'V',      'VOLTAGE'),
+                ('*Cap Stop',   'BattCapStop',  'mAh',    'CAP'),
+                ('*Time Stop',  'BattTimeStop', 's',      'TIMER'),
+                ('Von',         'OCPV',         'V',      'VOLTAGE'),
+                ('I Start',     'OCPStart',     'A',      'START'),
+                ('I End',       'OCPEnd',       'A',      'END'),
+                ('I Step',      'OCPStep',      'A',      'STEP'),
+                ('Step Delay',  'OCPDelay',     's',      'STEP:DELAY'),
+                ('Prot V',      'OPPV',         'V',      'VOLTAGE'),
+                ('P Start',     'OPPStart',     'W',      'START'),
+                ('P End',       'OPPEnd',       'W',      'END'),
+                ('P Step',      'OPPStep',      'W',      'STEP'),
+                ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY'),
+                ('# Steps',     'ListSteps',    None,     'STEP'),
+                ('@Run Count',  'ListCount',    None,     'COUNT')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 10em; max-height: 10em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -1246,7 +1242,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.setContentsMargins(0, 0, 0, 0)
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
-        self._widget_registry['MeasurementsRow'] = w;
+        self._widget_registry['MeasurementsRow'] = w
 
         # Enable measurements, reset battery log button
         layoutv = QVBoxLayout()
@@ -1402,7 +1398,6 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._widget_registry[f'Frame{widget_prefix}'] = frame
         return frame
 
-
     ############################################################################
     ### Action and Callback Handlers
     ############################################################################
@@ -1534,12 +1529,12 @@ Copyright 2022, Robert S. French"""
                 self._param_state[':FUNCTION:MODE'] = 'BASIC'
             case 'Dynamic':
                 self._cur_const_mode = (
-                        self._param_state[':FUNCTION:TRANSIENT'].title())
+                    self._param_state[':FUNCTION:TRANSIENT'].title())
                 # Dynamic also has sub-modes - Continuous, Pulse, Toggle
                 param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
                 mode_name = param_info['mode_name']
                 self._cur_dynamic_mode = (
-                            self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
+                    self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
                 # Force update since this does more than set a parameter - it switches
                 # modes
                 self._param_state[':FUNCTION:TRANSIENT'] = None
@@ -1639,7 +1634,7 @@ Copyright 2022, Robert S. French"""
                 info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
                 mode_name = info['mode_name']
                 self._cur_dynamic_mode = (
-                            self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
+                    self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
             case 'Battery':
                 new_param_state = {':BATTERY:MODE': self._cur_const_mode}
             case 'List':
@@ -1759,7 +1754,6 @@ Copyright 2022, Robert S. French"""
         """Handle clicking on the SHORT button."""
         if self._disable_callbacks: # Prevent recursive calls
             return
-        bt = self.sender()
         state = 1-self._param_state[':SHORT:STATE']
         self._update_short_state(state) # Also updates the button
 
@@ -1797,7 +1791,6 @@ Copyright 2022, Robert S. French"""
         """Handle clicking on the LOAD button."""
         if self._disable_callbacks: # Prevent recursive calls
             return
-        bt = self.sender()
         state = 1-self._param_state[':INPUT:STATE']
         self._update_load_state(state) # Also updates the button
 
@@ -1874,14 +1867,15 @@ Copyright 2022, Robert S. French"""
                 # We stop the progression AFTER the current step finished
                 self._list_mode_stopping = True
                 if self._list_mode_cur_step_num == self._param_state[':LIST:STEP']-1:
-                    QMessageBox.warning(self, 'Warning',
-                         'Due to a bug in the SDL1000, pausing in List Mode on the final '
-                         'step and then resuming will cause execution of an additional '
-                         'step not currently displayed. This will confuse the status '
-                         'display and could potentially damage your device under test. '
-                         'It is strongly recommended that you not resume List Mode '
-                         'sequencing at this point but instead turn off the load to '
-                         'reset to step 1. This bug has been reported to Siglent.')
+                    QMessageBox.warning(
+                        self, 'Warning',
+                        'Due to a bug in the SDL1000, pausing in List Mode on the final '
+                        'step and then resuming will cause execution of an additional '
+                        'step not currently displayed. This will confuse the status '
+                        'display and could potentially damage your device under test. '
+                        'It is strongly recommended that you not resume List Mode '
+                        'sequencing at this point but instead turn off the load to '
+                        'reset to step 1. This bug has been reported to Siglent.')
 
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
@@ -1902,7 +1896,6 @@ Copyright 2022, Robert S. French"""
         """Handle clicking on the reset battery log button."""
         self._inst.write(':BATTERY:ADDCAP 0')
         self._reset_batt_log()
-
 
     ################################
     ### Internal helper routines ###
@@ -1936,7 +1929,7 @@ Copyright 2022, Robert S. French"""
             case 'BASIC':
                 self._inst.write(f':FUNCTION {const_mode}')
             case 'LED':
-                self._inst.write(f':FUNCTION LED')
+                self._inst.write(':FUNCTION LED')
             case 'BATTERY':
                 self._inst.write(':FUNCTION BATTERY')
                 self._inst.write(f':BATTERY:MODE {const_mode}')
@@ -2059,28 +2052,29 @@ Copyright 2022, Robert S. French"""
                 self._inst.write(f':BATTERY:ADDCAP {disch_cap + add_cap}')
                 # Update the battery log entries
                 if self._load_on_time is not None and self._load_off_time is not None:
+                    level = self._param_state[':BATTERY:LEVEL']
                     match self._cur_const_mode:
                         case 'Current':
-                            batt_mode = 'CC %.3fA' % self._param_state[':BATTERY:LEVEL']
+                            batt_mode = f'CC {level:.3f}A'
                         case 'Power':
-                            batt_mode = 'CP %.3fW' % self._param_state[':BATTERY:LEVEL']
+                            batt_mode = f'CP {level:.3f}W'
                         case 'Resistance':
-                            batt_mode = 'CR %.3f\u2126' % self._param_state[
-                                                                        ':BATTERY:LEVEL']
+                            batt_mode = f'CR {level:.3f}\u2126'
                     self._batt_log_modes.append(batt_mode)
                     stop_cond = ''
                     if self._param_state[':BATTERY:VOLTAGE:STATE']:
-                        stop_cond += 'Vmin %.3fV' % self._param_state[':BATTERY:VOLTAGE']
+                        v = self._param_state[':BATTERY:VOLTAGE']
+                        stop_cond += f'Vmin {v:.3f}V'
                     if self._param_state[':BATTERY:CAP:STATE']:
                         if stop_cond != '':
                             stop_cond += ' or '
-                        stop_cond += 'Cap %.3fAh' % (self._param_state[':BATTERY:CAP']/
-                                                                                    1000)
+                            cap = self._param_state[':BATTERY:CAP']/1000
+                        stop_cond += f'Cap {cap:3f}Ah'
                     if self._param_state[':BATTERY:TIMER:STATE']:
                         if stop_cond != '':
                             stop_cond += ' or '
                         stop_cond += 'Time '+self._time_to_hms(
-                                                int(self._param_state[':BATTERY:TIMER']))
+                            int(self._param_state[':BATTERY:TIMER']))
                     if stop_cond == '':
                         self._batt_log_stop_cond.append('None')
                     else:
@@ -2242,7 +2236,8 @@ Copyright 2022, Robert S. French"""
                     # It's possible that setting the minimum or maximum caused the value
                     # to change, which means we need to update our state.
                     if val != int(float(widget.value())):
-                        new_param_state[f':{mode_name}:{scpi_cmd}'] = float(widget.value())
+                        widget_val = float(widget.value())
+                        new_param_state[f':{mode_name}:{scpi_cmd}'] = widget_val
                 case 'f': # Floating point
                     assert param_full_type[0] == '.'
                     dec = int(param_full_type[1:-1])
@@ -2254,7 +2249,8 @@ Copyright 2022, Robert S. French"""
                     # Note floating point comparison isn't precise so we only look to
                     # the precision of the number of decimals.
                     if int(val*dec10+.5) != int(widget.value()*dec10+.5):
-                        new_param_state[f':{mode_name}:{scpi_cmd}'] = float(widget.value())
+                        widget_val = float(widget.value())
+                        new_param_state[f':{mode_name}:{scpi_cmd}'] = widget_val
                 case 'r': # Radio button
                     # In this case only the widget_main is an RE
                     for trial_widget in self._widget_registry:
@@ -2318,13 +2314,13 @@ List status tracking is an approximation."""
         match self._cur_const_mode:
             case 'Voltage':
                 self._list_mode_levels = [min(x, vrange)
-                                             for x in self._list_mode_levels]
+                                          for x in self._list_mode_levels]
             case 'Current':
                 self._list_mode_levels = [min(x, irange)
-                                             for x in self._list_mode_levels]
+                                          for x in self._list_mode_levels]
             case 'Power':
                 self._list_mode_levels = [min(x, self._inst._max_power)
-                                             for x in self._list_mode_levels]
+                                          for x in self._list_mode_levels]
             # Nothing to do for Resistance since its max is largest
         table = self._widget_registry['ListTable']
         step = self._param_state[':LIST:STEP']
@@ -2350,11 +2346,11 @@ List status tracking is an approximation."""
                 fmts = ['.3f', '.3f']
                 ranges = ((0.03, 10000), (0.001, 999))
         self._list_mode_levels = [min(max(x, ranges[0][0]), ranges[0][1])
-                                    for x in self._list_mode_levels]
+                                  for x in self._list_mode_levels]
         self._list_mode_widths = [min(max(x, ranges[1][0]), ranges[1][1])
-                                    for x in self._list_mode_widths]
+                                  for x in self._list_mode_widths]
         self._list_mode_slews = [min(max(x, ranges[2][0]), ranges[2][1])
-                                    for x in self._list_mode_slews]
+                                 for x in self._list_mode_slews]
         if update_table:
             # We don't always want to update the table, because in edit mode when the
             # user changes a value, the table will have already been updated internally,
@@ -2372,7 +2368,7 @@ List status tracking is an approximation."""
             table.model().set_params(data, fmts, hdr)
             for i, fmt in enumerate(fmts):
                 table.setItemDelegateForColumn(
-                                i, DoubleSpinBoxDelegate(self, fmt, ranges[i]))
+                    i, DoubleSpinBoxDelegate(self, fmt, ranges[i]))
                 table.setColumnWidth(i, widths[i])
 
         # Update the List plot
@@ -2449,12 +2445,6 @@ List status tracking is an approximation."""
         return _SDL_MODE_PARAMS[key]
 
     def _update_param_state_and_inst(self, new_param_state):
-        # print('Old')
-        # print(pprint.pformat(self._param_state))
-        # print()
-        # print('New')
-        # print(pprint.pformat(new_param_state))
-        # print()
         for key, data in new_param_state.items():
             if data != self._param_state[key]:
                 self._update_one_param_on_inst(key, data)
@@ -2520,13 +2510,15 @@ List status tracking is an approximation."""
             if self._batt_log_initial_voltages[0] is None:
                 ret += 'Initial voltage: Not measured\n'
             else:
-                ret += 'Initial voltage: %.3fV\n'%self._batt_log_initial_voltages[0]
+                init_v = self._batt_log_initial_voltages[0]
+                ret += f'Initial voltage: {init_v:.3f}V\n'
         cap = sum(self._batt_log_caps)
         ret += 'Capacity: %.3fAh\n' % (cap/1000)
         if not single:
             for i in range(n_entries):
-                ret += '** Test segment #%d **\n' % (i+1)
-                ret += 'Start time: '+self._time_to_str(self._batt_log_start_times[i])+'\n'
+                ret += '** Test segment #{i_1}  **\n'
+                ret += 'Start time: '+self._time_to_str(self._batt_log_start_times[i])
+                ret += '\n'
                 ret += 'End time: '+self._time_to_str(self._batt_log_end_times[i])+'\n'
                 ret += 'Test time: '+self._time_to_hms(self._batt_log_run_times[i])+'\n'
                 ret += 'Test mode: '+self._batt_log_modes[i]+'\n'
@@ -2534,8 +2526,10 @@ List status tracking is an approximation."""
                 if self._batt_log_initial_voltages[i] is None:
                     ret += 'Initial voltage: Not measured\n'
                 else:
-                    ret += 'Initial voltage: %.3f\n'%self._batt_log_initial_voltages[i]
-                ret += 'Capacity: %.3fAh\n' % (self._batt_log_caps[i]/1000)
+                    init_v = self._batt_log_initial_voltages[i]
+                    ret += 'Initial voltage: {init_v:.3f}\n'
+                cap = self._batt_log_caps[i]/1000
+                ret += 'Capacity: {cap:.3f}Ah\n'
         return ret
 
 
@@ -2552,7 +2546,7 @@ class InstrumentSiglentSDL1000(Device4882):
             ips = self._resource_name.split('.') # This only works with TCP!
             self._name = f'SDL{ips[-1]}'
         else:
-            self._name = f'SDL'
+            self._name = 'SDL'
 
     def connect(self, *args, **kwargs):
         super().connect(*args, **kwargs)
@@ -2608,11 +2602,6 @@ class InstrumentSiglentSDL1000(Device4882):
                 self.measure_current(),
                 self.measure_power(),
                 self.measure_resistance())
-
-    ###
-
-
-
 
 
 """

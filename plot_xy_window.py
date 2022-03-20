@@ -21,39 +21,20 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
-import sys
-
-from PyQt6.QtWidgets import (QWidget,
-                             QApplication,
+from PyQt6.QtWidgets import (QColorDialog,
                              QComboBox,
-                             QMenuBar, QMenu, QStatusBar,
-                             QColorDialog,
-                             QDialog,
-                             QDialogButtonBox,
-                             QLabel,
-                             QLineEdit,
-                             QMessageBox,
-                             QPushButton,
-                             QRadioButton,
-                             QAbstractSpinBox,
-                             QDoubleSpinBox,
-                             QSpinBox,
-                             QButtonGroup,
-                             QLayout,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
+                             QLabel,
+                             QPushButton,
                              QVBoxLayout,
-                             QPlainTextEdit)
-from PyQt6.QtGui import QAction, QColor
-from PyQt6.QtCore import *
+                             QWidget)
+from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt
 
 import numpy as np
-import pandas as pd
 import pyqtgraph as pg
-import pyvisa
-
-import device
 
 
 _TIME_DURATIONS = (('15 seconds', 15),
@@ -88,12 +69,16 @@ _MARKER_SYMBOLS = (('Circle', 'o'),
                    ('Diamond', 'd'),
                    ('Cross', 'x'))
 
+
 class PlotXYWindow(QWidget):
     """The main window of the entire application."""
+    _PLOT_NUM = 0
+
     def __init__(self, main_window):
         super().__init__()
         self._main_window = main_window
-        self.setWindowTitle(f'XY Plot')
+        PlotXYWindow._PLOT_NUM += 1
+        self.setWindowTitle(f'XY Plot #{PlotXYWindow._PLOT_NUM}')
 
         self._max_plot_items = 8
         self._plot_background_color = '#000000'
@@ -164,10 +149,9 @@ class PlotXYWindow(QWidget):
                 orientation = 'right'
                 col = self._max_plot_items // 2 + i + 1
             axis_item = pg.AxisItem(orientation)
-            # axis_item.hide()
             self._plot_y_axis_items.append(axis_item)
             gl.addItem(axis_item, row=2, col=col, rowspan=1, colspan=1)
-            viewbox = pg.ViewBox() #defaultPadding=0)
+            viewbox = pg.ViewBox() # defaultPadding=0)
             viewbox.setXLink(self._plot_viewboxes[-1])
             self._plot_viewboxes.append(viewbox)
             gl.scene().addItem(viewbox)
@@ -302,7 +286,7 @@ class PlotXYWindow(QWidget):
             combo = QComboBox()
             combo.source_num = source_num
             layoutg2.addWidget(combo, 0, 1)
-            for pix in range(1,9):
+            for pix in range(1, 9):
                 combo.addItem(str(pix), userData=pix)
             combo.activated.connect(self._on_y_line_width_selection)
             combo = QComboBox()
@@ -316,7 +300,7 @@ class PlotXYWindow(QWidget):
             combo = QComboBox()
             combo.source_num = source_num
             layoutg2.addWidget(combo, 1, 1)
-            for pix in range(1,9):
+            for pix in range(1, 9):
                 combo.addItem(str(pix), userData=pix)
             combo.activated.connect(self._on_y_marker_size_selection)
             combo = QComboBox()
@@ -442,14 +426,14 @@ class PlotXYWindow(QWidget):
         for index, (key, name) in enumerate(self._main_window._measurement_names.items()):
             self._widget_x_axis_combo.addItem(name, userData=key)
             if key == self._plot_x_source:
-                combo.setCurrentIndex(index)
+                self._widget_x_axis_combo.setCurrentIndex(index)
 
         # Y axis selections
         for source_num, combo in enumerate(self._plot_y_source_combos):
             combo.clear()
             combo.addItem('Not used', userData=None)
             for index, (key, name) in enumerate(
-                                self._main_window._measurement_names.items()):
+                    self._main_window._measurement_names.items()):
                 combo.addItem(name, userData=key)
                 if key == self._plot_y_sources[source_num]:
                     combo.setCurrentIndex(index+1) # Account for "Not used"
@@ -562,7 +546,7 @@ class PlotXYWindow(QWidget):
     def measurements_changed(self):
         """Called when the set of instruments/measurements changes."""
         if (self._plot_x_source not in ('Elapsed Time', 'Absolute Time') and
-            self._plot_x_source not in self._main_window._measurements):
+                self._plot_x_source not in self._main_window._measurements):
             # The X source disappeared
             self._plot_x_source = 'Elapsed Time'
         for source_num in range(self._max_plot_items):
@@ -576,7 +560,7 @@ class PlotXYWindow(QWidget):
         """Update the plot axes and background color."""
         self._plot_graphics_view_widget.setBackground(self._plot_background_color)
         if (self._plot_x_source == 'Absolute Time' and
-            self._plot_x_source != self._plot_x_source_prev):
+                self._plot_x_source != self._plot_x_source_prev):
             # Not Absolute -> Absolute
             self._plot_x_axis_item = pg.DateAxisItem(orientation='bottom')
             self._master_plot_item.setAxisItems({'bottom': self._plot_x_axis_item})
@@ -604,8 +588,6 @@ class PlotXYWindow(QWidget):
                 axis_item.hide()
                 continue
             axis_item.show()
-            plot_item = self._plot_items[plot_num]
-            color = self._plot_colors[plot_num]
             m_name = self._main_window._measurement_names[plot_key]
             m_unit = self._main_window._measurement_units[plot_key]
             axis_item.setLabel(m_name, units=m_unit) # Allow SI adjustment

@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (QDialog,
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QTimer
 
+import numpy as np
 import pyvisa
 
 import device
@@ -220,7 +221,7 @@ class MainWindow(QWidget):
     def _on_interval_changed(self):
         """Handle a new value in the Measurement Interval input."""
         input = self.sender()
-        self._measurement_timer.setInterval(int(input.value()*1000))
+        self._measurement_timer.setInterval(int(input.value() * 1000))
 
     def _on_erase_all(self):
         """Handle Erase All button."""
@@ -275,11 +276,11 @@ class MainWindow(QWidget):
             msg1 = 'Started: N/A'
             msg2 = 'Elapsed: N/A'
         else:
-            msg1 = ('Started: '+
+            msg1 = ('Started: ' +
                     time.strftime('%Y %b %d %H:%M:%S',
                                   time.localtime(self._measurement_times[0])))
-            msg2 = 'Elapsed: '+self._time_to_hms(self._measurement_times[-1] -
-                                                             self._measurement_times[0])
+            msg2 = 'Elapsed: ' + self._time_to_hms(self._measurement_times[-1] -
+                                                   self._measurement_times[0])
         self._widget_measurement_started.setText(msg1)
         self._widget_measurement_elapsed.setText(msg2)
         npts = len(self._measurement_times)
@@ -292,8 +293,6 @@ class MainWindow(QWidget):
         # time so we can match up measurements in X/Y plots and file saving.
         if len(self._open_resources) == 0 or self._paused:
             return
-        cur_time = time.time()
-        self._measurement_times.append(cur_time)
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
                 measurements = config_widget.update_measurements()
@@ -301,13 +300,15 @@ class MainWindow(QWidget):
                     name = meas['name']
                     key = (inst.name, name)
                     if key not in self._measurements:
-                        self._measurements[key] = []
+                        self._measurements[key] = [np.nan] * len(self._measurement_times)
                         self._measurement_units[key] = meas['unit']
                         self._measurement_names[key] = f'{inst.name}: {name}'
                     val = meas['val']
                     if val is None:
                         val = math.nan
                     self._measurements[key].append(val)
+        cur_time = time.time()
+        self._measurement_times.append(cur_time)
 
         for plot_widget in self._plot_window_widgets:
             plot_widget.update()
