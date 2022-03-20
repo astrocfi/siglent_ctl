@@ -177,7 +177,8 @@ _SDL_OVERALL_MODES = {
 #           For 4 and 5, the min/max can be a constant number or a special
 #           character. 'C' means the limits of the CURRENT RANGE. 'V' means the
 #           limits of the VOLTAGE RANGE. 'P' means the limits of power based
-#           on the SDL model number (200W or 300W). It can also be 'W:<widget_name>'
+#           on the SDL model number (200W or 300W). 'S' means the limits of current
+#           slew based on the current IRANGE. It can also be 'W:<widget_name>'
 #           which means to retrieve the value of that widget; this is useful for
 #           min/max pairs.
 # The "General" entry is a little special, since it doesn't pertain to a particular
@@ -222,8 +223,8 @@ _SDL_MODE_PARAMS = {
             ('IRANGE',            'r', None, 'Range_Current_.*'),
             ('VRANGE',            'r', None, 'Range_Voltage_.*'),
             ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Current', 'MainParameters_Current', 0, 'C'),
-            ('SLEW:POSITIVE',   '.3f', 'AuxParametersLabel_BSlewPos', 'AuxParameters_BSlewPos', 0.001, 2.5),
-            ('SLEW:NEGATIVE',   '.3f', 'AuxParametersLabel_BSlewNeg', 'AuxParameters_BSlewNeg', 0.001, 2.5),
+            ('SLEW:POSITIVE',   '.3f', 'AuxParametersLabel_BSlewPos', 'AuxParameters_BSlewPos', 'S', 'S'),
+            ('SLEW:NEGATIVE',   '.3f', 'AuxParametersLabel_BSlewNeg', 'AuxParameters_BSlewNeg', 'S', 'S'),
           )
         },
     ('Basic', 'Power'):
@@ -347,8 +348,8 @@ _SDL_MODE_PARAMS = {
             ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
             ('TRANSIENT:AWIDTH',        '.6f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.000020, 999),
             ('TRANSIENT:BWIDTH',        '.6f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.000020, 999),
-            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
-            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.05),
+            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 'S', 'S'),
+            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 'S', 'S'),
           )
         },
     ('Dynamic', 'Current', 'Pulse'):
@@ -361,8 +362,8 @@ _SDL_MODE_PARAMS = {
             ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
             ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
             ('TRANSIENT:BWIDTH',        '.6f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.000020, 999),
-            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
-            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.05),
+            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 'S', 'S'),
+            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 'S', 'S'),
           )
         },
     ('Dynamic', 'Current', 'Toggle'):
@@ -374,8 +375,8 @@ _SDL_MODE_PARAMS = {
             ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
             ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
             ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
-            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 0.001, 0.5),
-            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 0.001, 0.05),
+            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 'S', 'S'),
+            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 'S', 'S'),
           )
         },
     ('Dynamic', 'Power', 'Continuous'):
@@ -775,9 +776,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 # Special write of the List Mode parameters
                 steps = self._param_state[':LIST:STEP']
                 for i in range(1, steps+1):
-                    self._inst.write(f':LIST:LEVEL {i},{self._list_mode_levels[i-1]}')
-                    self._inst.write(f':LIST:WIDTH {i},{self._list_mode_widths[i-1]}')
-                    self._inst.write(f':LIST:SLEW {i},{self._list_mode_slews[i-1]}')
+                    self._inst.write(f':LIST:LEVEL {i},{self._list_mode_levels[i-1]:.3f}')
+                    self._inst.write(f':LIST:WIDTH {i},{self._list_mode_widths[i-1]:.3f}')
+                    self._inst.write(f':LIST:SLEW {i},{self._list_mode_slews[i-1]:.3f}')
 
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
@@ -879,15 +880,15 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 m, s = divmod(disch_time, 60)
                 h, m = divmod(m, 60)
                 w = self._widget_registry['MeasureBattTime']
-                w.setText('%02d:%02d:%02d' % (h, m, s))
+                w.setText(f'{h:02d}:{m:02d}:{s:02}')
 
                 w = self._widget_registry['MeasureBattCap']
                 disch_cap = self._inst.measure_battery_capacity()
-                w.setText('%7.3f Ah' % disch_cap)
+                w.setText(f'{disch_cap:7.3f} Ah')
 
                 w = self._widget_registry['MeasureBattAddCap']
                 add_cap = self._inst.measure_battery_add_capacity()
-                w.setText('Addl Cap: %7.3f Ah' % add_cap)
+                w.setText(f'Addl Cap: {add_cap:7.3f} Ah')
 
                 # When the LOAD is OFF, we have already updated the ADDCAP to include the
                 # current test results, so we don't want to add it in a second time
@@ -896,7 +897,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 else:
                     total_cap = add_cap
                 w = self._widget_registry['MeasureBattTotalCap']
-                w.setText('Total Cap: %7.3f Ah' % total_cap)
+                w.setText(f'Total Cap: {total_cap:7.3f} Ah')
         measurements['Discharge Time'] = {'name':  'Batt Dischg Time',
                                           'unit':  's',
                                           'val':   disch_time}
@@ -1394,7 +1395,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             label.sizePolicy().setRetainSizeWhenHidden(True)
             input.sizePolicy().setRetainSizeWhenHidden(True)
             layoutv.addLayout(layouth)
-            self._widget_registry[f'{widget_prefix}_{param_name}'] = input
+            input.registry_name = f'{widget_prefix}_{param_name}'
+            self._widget_registry[input.registry_name] = input
             self._widget_registry[f'{widget_prefix}Label_{param_name}'] = label
         layoutv.addStretch()
         self._widget_registry[f'Frame{widget_prefix}'] = frame
@@ -1687,10 +1689,41 @@ Copyright 2022, Robert S. French"""
             val = int(val)
         scpi_cmd = f':{mode_name}:{scpi}'
         new_param_state = {scpi_cmd: val}
-        # Check for special case of associated boolean flag
+        # Check for special case of associated boolean flag. In these cases if the
+        # value is zero, we set the boolean to False. If the value is non-zero, we
+        # set the boolean to True. This makes zero be the "deactivated" sentinal.
         param1 = f':{mode_name}:{scpi}:STATE'
         if param1 in self._param_state:
             new_param_state[param1] = int(val != 0)
+        # Check for the special case of a slew parameter. The rise and fall slew
+        # values are tied together. In 5A mode, both must be in the range
+        # 0.001-0.009 or 0.010-0.500. In 30A mode, both must be in the range
+        # 0.001-0.099 or 0.100-2.500. If one of the inputs goes outside of its
+        # current range, the other field needs to be changed.
+        if 'SLEW' in scpi_cmd:
+            trans = self._transient_string()
+            irange = self._param_state[f':{mode_name}{trans}:IRANGE']
+            if input.registry_name.endswith('SlewPos'):
+                other_name = input.registry_name.replace('SlewPos', 'SlewNeg')
+                other_scpi = scpi.replace('POSITIVE', 'NEGATIVE')
+            else:
+                other_name = input.registry_name.replace('SlewNeg', 'SlewPos')
+                other_scpi = scpi.replace('NEGATIVE', 'POSITIVE')
+            other_widget = self._widget_registry[other_name]
+            orig_other_val = other_val = other_widget.value()
+            if irange == '5':
+                if 0.001 <= val <= 0.009 and not (0.001 <= other_val <= 0.009):
+                    other_val = 0.009
+                elif not (0.010 <= other_val <= 0.500):
+                    other_val = 0.010
+            else:
+                if 0.001 <= val <= 0.099 and not (0.001 <= other_val <= 0.099):
+                    other_val = 0.099
+                elif not (0.100 <= other_val <= 2.500):
+                    other_val = 0.100
+            if orig_other_val != other_val:
+                scpi_cmd = f':{mode_name}:{other_scpi}'
+                new_param_state[scpi_cmd] = other_val
         self._update_param_state_and_inst(new_param_state)
         if scpi_cmd == ':LIST:STEP':
             # When we change the number of steps, we might need to read in more
@@ -2152,6 +2185,8 @@ Copyright 2022, Robert S. French"""
                     trans = self._transient_string()
                     if min_val in ('C', 'V', 'P'):
                         min_val = 0
+                    elif min_val == 'S':
+                        min_val = 0.001
                     elif isinstance(min_val, str) and min_val.startswith('W:'):
                         if minmax_ok:
                             # This is needed because when we're first loading up the
@@ -2170,6 +2205,12 @@ Copyright 2022, Robert S. French"""
                                 max_val = float(max_val)
                             case 'P': # SDL1020 is 200W, SDL1030 is 300W
                                 max_val = self._inst._max_power
+                            case 'S': # Slew range depends on IRANGE
+                                if self._param_state[
+                                        f':{mode_name}{trans}:IRANGE'] == '5':
+                                    max_val = 0.5
+                                else:
+                                    max_val = 2.5
                             case 'W':
                                 if minmax_ok:
                                     # This is needed because when we're first loading up
@@ -2296,7 +2337,10 @@ List status tracking is an approximation."""
             case 'Current':
                 hdr = ['Current (A)', 'Time (s)', 'Slew (A/\u00B5s)']
                 fmts = ['.3f', '.3f', '.3f']
-                ranges = ((0, irange), (0.001, 999), (0.001, 0.5))
+                if irange == 5:
+                    ranges = ((0, irange), (0.001, 999), (0.001, 0.5))
+                else:
+                    ranges = ((0, irange), (0.001, 999), (0.001, 2.5))
             case 'Power':
                 hdr = ['Power (W)', 'Time (s)']
                 fmts = ['.2f', '.3f']
@@ -2305,6 +2349,12 @@ List status tracking is an approximation."""
                 hdr = ['Resistance (\u2126)', 'Time (s)']
                 fmts = ['.3f', '.3f']
                 ranges = ((0.03, 10000), (0.001, 999))
+        self._list_mode_levels = [min(max(x, ranges[0][0]), ranges[0][1])
+                                    for x in self._list_mode_levels]
+        self._list_mode_widths = [min(max(x, ranges[1][0]), ranges[1][1])
+                                    for x in self._list_mode_widths]
+        self._list_mode_slews = [min(max(x, ranges[2][0]), ranges[2][1])
+                                    for x in self._list_mode_slews]
         if update_table:
             # We don't always want to update the table, because in edit mode when the
             # user changes a value, the table will have already been updated internally,
@@ -2566,27 +2616,6 @@ class InstrumentSiglentSDL1000(Device4882):
 
 
 """
-[:SOURce]:LIST:MODE {CURRent | VOLTage | POWer | RESistance}
-[:SOURce]:LIST:MODE?
-[:SOURce]:LIST:IRANGe <value>
-[:SOURce]:LIST:IRANGe?
-[:SOURce]:LIST:VRANGe <value>
-[:SOURce]:LIST:VRANGe?
-[:SOURce]:LIST:RRANGe {LOW | MIDDLE | HIGH | UPPER}
-[:SOURce]:LIST:RRANGe?
-[:SOURce]:LIST:COUNt {< number: int > | MINimum | MAXimum | DEFault}
-[:SOURce]:LIST:COUNt?
-[:SOURce]:LIST:STEP {< number: int > | MINimum | MAXimum | DEFault}
-[:SOURce]:LIST:STEP?
-[:SOURce]:LIST:LEVel <step: int, value: float>
-[:SOURce]:LIST:LEVel?
-[:SOURce]:LIST:SLEW[:BOTH] <step: int, value: float>
-[:SOURce]:LIST:SLEW[:BOTH]?
-[:SOURce]:LIST:WIDth <step: int, value: float>
-[:SOURce]:LIST:WIDth?
-[:SOURce]:LIST:STATe:ON
-[:SOURce]:LIST:STATe?
-
 [:SOURce]:PROGram:STEP {< number > | MINimum | MAXimum | DEFault}
 [:SOURce]:PROGram:STEP?
 [:SOURce]:PROGram:MODE <step>, {CURRent | VOLTage | POWer | RESistance | LED}
