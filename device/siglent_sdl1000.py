@@ -80,13 +80,17 @@
 ################################################################################
 # Known bugs in the SDL1000:
 #
-# - If you are in Battery/Current mode with the load on and change the current
-#   setting, the display will update but the current used will not actually
-#   change.
 # - If you are in List mode and you trigger during the final step, wait for the
 #   step to complete, then trigger again to restart the sequence, it will continue
 #   with the step past the end of the current # of steps (which is inactive)
-#   before returning to step 0.
+#   before returning to step 0. We don't try to fix this problem, but we do
+#   display a warning dialog when it's about to occur.
+# - In Battery mode with Constant Current selected, the SCPI command to update
+#   the desired current value will cause the value to change on the display
+#   (and in the SDL's memory), but won't actually affect the currently running
+#   test. This isn't true for Constant Power or Constant Resistance. Changes to
+#   those values take effect immediately. As a result we disable the Current
+#   value box while a CC Battery test is running.
 ################################################################################
 
 
@@ -189,17 +193,30 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
             # copying _param_state to the instrument.
             # SYST:REMOTE:STATE is undocumented! It locks the keyboard and
             # sets the remote access icon
-            ('SYST:REMOTE:STATE',  'b', False),
-            ('INPUT:STATE',        'b', False),
-            ('SHORT:STATE',        'b', False),
-            ('FUNCTION',           'r', False),
-            ('FUNCTION:TRANSIENT', 'r', False),
+            ('SYST:REMOTE:STATE',            'b', False),
+            ('INPUT:STATE',                  'b', False),
+            ('SHORT:STATE',                  'b', False),
+            ('FUNCTION',                     'r', False),
+            ('FUNCTION:TRANSIENT',           'r', False),
             # FUNCtion:MODE is undocumented! Possible return values are:
             #   BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
-            ('FUNCTION:MODE',      's', False),
-            ('BATTERY:MODE',       's', True),
-            ('LIST:MODE',          's', True),
-            ('TRIGGER:SOURCE',     's', True),
+            ('FUNCTION:MODE',                's', False),
+            ('BATTERY:MODE',                 's', True),
+            ('LIST:MODE',                    's', True),
+            ('TRIGGER:SOURCE',               's', True),
+            ('SENSE:AVERAGE:COUNT',          'd', 'GlobalParametersLabel_AvgCount', 'GlobalParameters_AvgCount', 6, 14),
+            ('SYSTEM:SENSE:STATE',           'b', None, 'ExternalVoltageSense'),
+            ('SYSTEM:IMONITOR:STATE',        'b', None, 'EnableIMonitor'),
+            ('SYSTEM:VMONITOR:STATE',        'b', None, 'EnableVMonitor'),
+            ('EXT:INPUT:STATE',              'b', None, 'ExternalInputState'),
+            ('VOLTAGE:LEVEL:ON',           '.3f', None, 'GlobalParameters_BreakoverV', 0, 150),
+            ('VOLTAGE:LATCH:STATE',          'b', None, 'BreakoverVoltageLatch'),
+            (('CURRENT:PROTECTION:LEVEL',
+              'CURRENT:PROTECTION:STATE'), '.3f', 'GlobalParametersLabel_CurrentProtL', 'GlobalParameters_CurrentProtL', 0, 30),
+            ('CURRENT:PROTECTION:DELAY',   '.3f', 'GlobalParametersLabel_CurrentProtD', 'GlobalParameters_CurrentProtD', 0, 60),
+            (('POWER:PROTECTION:LEVEL',
+              'POWER:PROTECTION:STATE'),   '.2f', 'GlobalParametersLabel_PowerProtL', 'GlobalParameters_PowerProtL', 0, 30),
+            ('POWER:PROTECTION:DELAY',     '.3f', 'GlobalParametersLabel_PowerProtD', 'GlobalParameters_PowerProtD', 0, 60),
          )
         },
     ('Basic', 'Voltage'):
@@ -751,8 +768,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         for mode, info in _SDL_MODE_PARAMS.items():
             first_write = True
             for param_spec in info['params']:
-                if not param_spec[2]:
-                    continue # This captures the General True/False flag
+                if param_spec[2] is False:
+                    continue # The General False flag, all others are written
                 param0, param1 = self._scpi_cmds_from_param_info(info, param_spec)
                 if param0 in set_params:
                     # Sub-modes often ask for the same data, no need to retrieve it twice
@@ -927,6 +944,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         action.setChecked(True)
         action.triggered.connect(self._menu_do_view_parameters)
         self._menubar_view.addAction(action)
+        action = QAction('&Global Parameters', self, checkable=True)
+        action.setChecked(False)
+        action.triggered.connect(self._menu_do_view_global_parameters)
+        self._menubar_view.addAction(action)
         action = QAction('&Load and Trigger', self, checkable=True)
         action.setChecked(True)
         action.triggered.connect(self._menu_do_view_load_trigger)
@@ -945,6 +966,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         w = QWidget()
         row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
         w.setLayout(row_layout)
         main_vert_layout.addWidget(w)
         self._widget_registry['ParametersRow'] = w
@@ -1053,10 +1075,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 ('Slew (fall)', 'BSlewNeg', 'A/\u00B5s', 'SLEW:NEGATIVE'),
                 ('Slew (rise)', 'TSlewPos', 'A/\u00B5s', 'TRANSIENT:SLEW:POSITIVE'),
                 ('Slew (fall)', 'TSlewNeg', 'A/\u00B5s', 'TRANSIENT:SLEW:NEGATIVE'),
-                ('I Min',       'OCPMIN',   'A',        'MIN'),
-                ('I Max',       'OCPMAX',   'A',        'MAX'),
-                ('P Min',       'OPPMIN',   'W',        'MIN'),
-                ('P Max',       'OPPMAX',   'W',        'MAX')))
+                ('I Min',       'OCPMIN',   'A',         'MIN'),
+                ('I Max',       'OCPMAX',   'A',         'MAX'),
+                ('P Min',       'OPPMIN',   'W',         'MIN'),
+                ('P Max',       'OPPMAX',   'W',         'MAX')))
         ss = """QGroupBox { min-width: 11em; max-width: 11em;
                             min-height: 5em; max-height: 5em; }
                 QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
@@ -1090,9 +1112,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 ('Current',     'BattC',        'A',      'LEVEL'),
                 ('Power',       'BattP',        'W',      'LEVEL'),
                 ('Resistance',  'BattR',        '\u2126', 'LEVEL'),
-                ('*V Stop',     'BattVStop',    'V',      'VOLTAGE'),
-                ('*Cap Stop',   'BattCapStop',  'mAh',    'CAP'),
-                ('*Time Stop',  'BattTimeStop', 's',      'TIMER'),
+                ('*V Stop',     'BattVStop',    'V',      ('VOLTAGE',
+                                                           'VOLTAGE:STATE')),
+                ('*Cap Stop',   'BattCapStop',  'mAh',    ('CAP',
+                                                           'CAP:STATE')),
+                ('*Time Stop',  'BattTimeStop', 's',      ('TIMER',
+                                                           'TIMER:STATE')),
                 ('Von',         'OCPV',         'V',      'VOLTAGE'),
                 ('I Start',     'OCPStart',     'A',      'START'),
                 ('I End',       'OCPEnd',       'A',      'END'),
@@ -1114,7 +1139,78 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ###################
 
-        ###### ROW 2 - PROGRAM MODE ######
+        ###### ROW 2 - DEVICE PARAMETERS ######
+
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        main_vert_layout.addWidget(w)
+        self._widget_registry['GlobalParametersRow'] = w
+        w.hide()
+
+        ### ROW 2, COLUMN 1 ###
+
+        frame = QGroupBox('Global Parameters')
+        row_layout.addWidget(frame)
+        layouth = QHBoxLayout(frame)
+
+        # Left column
+        layoutv = QVBoxLayout()
+        layouth.addLayout(layoutv)
+        w = QCheckBox('External Voltage Sense')
+        self._widget_registry['ExternalVoltageSense'] = w
+        w.clicked.connect(self._on_click_ext_voltage_sense)
+        layoutv.addWidget(w)
+        w = QCheckBox('External Current Monitor')
+        self._widget_registry['EnableIMonitor'] = w
+        w.clicked.connect(self._on_click_imonitor)
+        layoutv.addWidget(w)
+        w = QCheckBox('External Voltage Monitor')
+        self._widget_registry['EnableVMonitor'] = w
+        w.clicked.connect(self._on_click_vmonitor)
+        layoutv.addWidget(w)
+        w = QCheckBox('External Load Control \u26A0')
+        self._widget_registry['ExternalInputState'] = w
+        w.clicked.connect(self._on_click_ext_input_state)
+        layoutv.addWidget(w)
+        layoutv.addStretch()
+        layouth.addStretch()
+
+        # Middle column
+        layoutv = QVBoxLayout()
+        layouth.addLayout(layoutv)
+        _ = self._init_widgets_value_box(
+            'Global Parameters', (
+                ('*Current Protection Level', 'CurrentProtL', 'A', (':CURRENT:PROTECTION:LEVEL',
+                                                                    ':CURRENT:PROTECTION:STATE')),
+                ('Current Protection Delay',  'CurrentProtD', 's', ':CURRENT:PROTECTION:DELAY'),
+                ('*Power Protection Level',   'PowerProtL',   'W', (':POWER:PROTECTION:LEVEL',
+                                                                    ':POWER:PROTECTION:STATE')),
+                ('Power Protection Delay',    'PowerProtD',   's', ':POWER:PROTECTION:DELAY'),
+            ), layout=layoutv)
+        ss = """QDoubleSpinBox { min-width: 4.5em; max-width: 4.5em; }
+             """
+        frame.setStyleSheet(ss)
+        layoutv.addStretch()
+        layouth.addStretch()
+
+        # Right column
+        layoutv = QVBoxLayout()
+        layouth.addLayout(layoutv)
+        _ = self._init_widgets_value_box(
+            'Global Parameters', (
+                ('Average Count',             'AvgCount',     None, ':SENSE:AVERAGE:COUNT'),
+                ('Breakover Voltage',         'BreakoverV',    'V', ':VOLTAGE:LEVEL:ON'),
+            ), layout=layoutv)
+        w = QCheckBox('Breakover Voltage Latch')
+        self._widget_registry['BreakoverVoltageLatch'] = w
+        w.clicked.connect(self._on_click_breakover_voltage_latch)
+        layoutv.addWidget(w)
+        layoutv.addStretch()
+        layouth.addStretch()
+
+        ###################
 
         ###### ROW 3 - LIST MODE ######
 
@@ -1148,7 +1244,14 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ###################
 
-        ###### ROW 4 - SHORT/LOAD/TRIGGER ######
+        ###### ROW 4 - PROGRAM MODE ######
+
+        # w = QCheckBox('Stop on fail')
+        # self._widget_registry['StopOnFail'] = w
+        # w.clicked.connect(self._on_click_stop_on_fail)
+        # layoutv.addWidget(w)
+
+        ###### ROW 5 - SHORT/LOAD/TRIGGER ######
 
         w = QWidget()
         row_layout = QHBoxLayout()
@@ -1157,7 +1260,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         main_vert_layout.addWidget(w)
         self._widget_registry['TriggerRow'] = w
 
-        ###### ROW 4, COLUMN 1 - SHORT ######
+        ###### ROW 5, COLUMN 1 - SHORT ######
 
         layoutv = QVBoxLayout()
         layoutv.setSpacing(0)
@@ -1181,7 +1284,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         row_layout.addStretch()
 
-        ###### ROW 4, COLUMN 2 - LOAD ######
+        ###### ROW 5, COLUMN 2 - LOAD ######
 
         w = QPushButton('') # LOAD ON/OFF
         w.clicked.connect(self._on_click_load_on_off)
@@ -1191,7 +1294,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         row_layout.addStretch()
 
-        ###### ROW 4, COLUMN 3 - TRIGGER ######
+        ###### ROW 5, COLUMN 3 - TRIGGER ######
 
         layoutv = QVBoxLayout()
         layoutv.setSpacing(0)
@@ -1235,7 +1338,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ###################
 
-        ###### ROW 5 - MEASUREMENTS ######
+        ###### ROW 6 - MEASUREMENTS ######
 
         w = QWidget()
         row_layout = QHBoxLayout()
@@ -1246,7 +1349,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # Enable measurements, reset battery log button
         layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
+        # layoutv.setSpacing(0)
         row_layout.addLayout(layoutv)
         layoutv.addWidget(QLabel('Enable measurements:'))
         layoutg = QGridLayout()
@@ -1358,11 +1461,21 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     #   - The name of the parameter as used in the _SDL_MODE_PARAMS dictionary
     #   - The unit to display in the input edit field
     #   - The SCPI parameter name, which gets added as an attribute on the widget
-    def _init_widgets_value_box(self, title, details):
+    #     - If the SCPI parameter is a tuple (SCPI1, SCPI2), then the first is the
+    #       main parameter, and the second is the associated "STATE" parameter that
+    #       is set to 0 or 1 depending on whether the main parameter is zero or
+    #       non-zero.
+    #     - If the SCPI parameter starts with ":" then the current mode is not
+    #       prepended during widget update.
+    def _init_widgets_value_box(self, title, details, layout=None):
         # Value for most modes
-        frame = QGroupBox(title)
         widget_prefix = title.replace(' ', '')
-        layoutv = QVBoxLayout(frame)
+        if layout is None:
+            frame = QGroupBox(title)
+            layoutv = QVBoxLayout(frame)
+        else:
+            frame = None
+            layoutv = layout
         for (display, param_name, unit, scpi) in details:
             special_text = None
             if display[0] == '*':
@@ -1394,8 +1507,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             input.registry_name = f'{widget_prefix}_{param_name}'
             self._widget_registry[input.registry_name] = input
             self._widget_registry[f'{widget_prefix}Label_{param_name}'] = label
-        layoutv.addStretch()
-        self._widget_registry[f'Frame{widget_prefix}'] = frame
+        if frame is not None:
+            layoutv.addStretch()
+            self._widget_registry[f'Frame{widget_prefix}'] = frame
         return frame
 
     ############################################################################
@@ -1483,10 +1597,18 @@ Copyright 2022, Robert S. French"""
         """Toggle visibility of the parameters row."""
         if state:
             self._widget_registry['ParametersRow'].show()
-            self._widget_registry['ListRow'].show()
+            if self._cur_overall_mode == 'List':
+                self._widget_registry['ListRow'].show()
         else:
             self._widget_registry['ParametersRow'].hide()
             self._widget_registry['ListRow'].hide()
+
+    def _menu_do_view_global_parameters(self, state):
+        """Toggle visibility of the global parameters row."""
+        if state:
+            self._widget_registry['GlobalParametersRow'].show()
+        else:
+            self._widget_registry['GlobalParametersRow'].hide()
 
     def _menu_do_view_load_trigger(self, state):
         """Toggle visibility of the short/load/trigger row."""
@@ -1674,30 +1796,45 @@ Copyright 2022, Robert S. French"""
         if self._disable_callbacks: # Prevent recursive calls
             return
         input = self.sender()
-        mode, scpi = input.wid
+        param_name, scpi = input.wid
+        scpi_cmd_state = None
+        scpi_state = None
+        if isinstance(scpi, tuple):
+            scpi, scpi_state = scpi
         info = self._cur_mode_param_info()
         mode_name = info['mode_name']
+        if scpi[0] == ':':
+            mode_name = ''  # Global setting
+            scpi_cmd = scpi
+            if scpi_state is not None:
+                scpi_cmd_state = scpi_state
+        else:
+            mode_name = f':{mode_name}'
+            scpi_cmd = f'{mode_name}:{scpi}'
+            if scpi_state is not None:
+                scpi_cmd_state = f'{mode_name}:{scpi_state}'
         val = input.value()
         if input.decimals() > 0:
             val = float(input.value())
         else:
             val = int(val)
-        scpi_cmd = f':{mode_name}:{scpi}'
         new_param_state = {scpi_cmd: val}
         # Check for special case of associated boolean flag. In these cases if the
         # value is zero, we set the boolean to False. If the value is non-zero, we
         # set the boolean to True. This makes zero be the "deactivated" sentinal.
-        param1 = f':{mode_name}:{scpi}:STATE'
-        if param1 in self._param_state:
-            new_param_state[param1] = int(val != 0)
+        if scpi_cmd_state in self._param_state:
+            new_param_state[scpi_cmd_state] = int(val != 0)
         # Check for the special case of a slew parameter. The rise and fall slew
         # values are tied together. In 5A mode, both must be in the range
         # 0.001-0.009 or 0.010-0.500. In 30A mode, both must be in the range
         # 0.001-0.099 or 0.100-2.500. If one of the inputs goes outside of its
         # current range, the other field needs to be changed.
         if 'SLEW' in scpi_cmd:
-            trans = self._transient_string()
-            irange = self._param_state[f':{mode_name}{trans}:IRANGE']
+            if mode_name == '':
+                trans = ''
+            else:
+                trans = self._transient_string()
+            irange = self._param_state[f'{mode_name}{trans}:IRANGE']
             if input.registry_name.endswith('SlewPos'):
                 other_name = input.registry_name.replace('SlewPos', 'SlewNeg')
                 other_scpi = scpi.replace('POSITIVE', 'NEGATIVE')
@@ -1707,17 +1844,19 @@ Copyright 2022, Robert S. French"""
             other_widget = self._widget_registry[other_name]
             orig_other_val = other_val = other_widget.value()
             if irange == '5':
-                if 0.001 <= val <= 0.009 and not (0.001 <= other_val <= 0.009):
-                    other_val = 0.009
+                if 0.001 <= val <= 0.009:
+                    if not (0.001 <= other_val <= 0.009):
+                        other_val = 0.009
                 elif not (0.010 <= other_val <= 0.500):
                     other_val = 0.010
             else:
-                if 0.001 <= val <= 0.099 and not (0.001 <= other_val <= 0.099):
-                    other_val = 0.099
+                if 0.001 <= val <= 0.099:
+                    if not (0.001 <= other_val <= 0.099):
+                        other_val = 0.099
                 elif not (0.100 <= other_val <= 2.500):
                     other_val = 0.100
             if orig_other_val != other_val:
-                scpi_cmd = f':{mode_name}:{other_scpi}'
+                scpi_cmd = f'{mode_name}:{other_scpi}'
                 new_param_state[scpi_cmd] = other_val
         self._update_param_state_and_inst(new_param_state)
         if scpi_cmd == ':LIST:STEP':
@@ -1725,6 +1864,58 @@ Copyright 2022, Robert S. French"""
             # rows from the instrument
             self._update_list_mode_from_instrument(new_rows_only=True)
         self._update_widgets()
+
+    def _on_click_ext_voltage_sense(self):
+        """Handle click on External Voltage Source checkbox."""
+        cb = self.sender()
+        load_on = self._param_state[':INPUT:STATE']
+        # You can't change the voltage source with the load on, so really quickly
+        # turn it off and then back on.
+        if load_on:
+            self._update_load_state(0, update_widgets=False)
+        if cb.isChecked():
+            new_param_state = {':SYSTEM:SENSE:STATE': 1}
+        else:
+            new_param_state = {':SYSTEM:SENSE:STATE': 0}
+        self._update_param_state_and_inst(new_param_state)
+        if load_on:
+            self._update_load_state(1)
+
+    def _on_click_breakover_voltage_latch(self):
+        """Handle click on Breakover Voltage Latch checkbox."""
+        cb = self.sender()
+        if cb.isChecked():
+            new_param_state = {':VOLTAGE:LATCH:STATE': 1}
+        else:
+            new_param_state = {':VOLTAGE:LATCH:STATE': 0}
+        self._update_param_state_and_inst(new_param_state)
+
+    def _on_click_ext_input_state(self):
+        """Handle click on External Input Control checkbox."""
+        cb = self.sender()
+        if cb.isChecked():
+            new_param_state = {':EXT:INPUT:STATE': 1}
+        else:
+            new_param_state = {':EXT:INPUT:STATE': 0}
+        self._update_param_state_and_inst(new_param_state)
+
+    def _on_click_imonitor(self):
+        """Handle click on Enable Ext Current Monitor checkbox."""
+        cb = self.sender()
+        if cb.isChecked():
+            new_param_state = {':SYSTEM:IMONITOR:STATE': 1}
+        else:
+            new_param_state = {':SYSTEM:IMONITOR:STATE': 0}
+        self._update_param_state_and_inst(new_param_state)
+
+    def _on_click_vmonitor(self):
+        """Handle click on Enable Ext Voltage Monitor checkbox."""
+        cb = self.sender()
+        if cb.isChecked():
+            new_param_state = {':SYSTEM:VMONITOR:STATE': 1}
+        else:
+            new_param_state = {':SYSTEM:VMONITOR:STATE': 0}
+        self._update_param_state_and_inst(new_param_state)
 
     def _on_list_table_change(self, row, column, val):
         """Handle change to any List Mode table value."""
@@ -2017,81 +2208,85 @@ Copyright 2022, Robert S. French"""
             self._list_mode_widths.append(float(self._inst.query(f':LIST:WIDTH? {i}')))
             self._list_mode_slews.append(float(self._inst.query(f':LIST:SLEW? {i}')))
 
-    def _update_load_state(self, state, update_inst=True):
+    def _update_load_state(self, state, update_inst=True, update_widgets=True):
         """Update the load on/off internal state, possibly updating the instrument."""
         old_state = self._param_state[':INPUT:STATE']
+        if state == old_state:
+            return
 
-        if state != old_state:
-            # When turning on/off the load, record the details for the battery log
-            # or other purposes that may be written in the future
-            if state:
-                self._load_on_time = time.time()
-                self._batt_log_initial_voltage = None
-                # And if we're in List mode, reset to step None (it will go to 0 when
-                # triggered)
-                if self._cur_overall_mode == 'List':
-                    self._list_mode_cur_step_num = None
-            else:
-                self._load_off_time = time.time()
-                # Any change from one overall mode to another (e.g. leaving List mode
-                # for any reason) will pass through here, so this takes care of stopping
-                # the timer in all those cases
-                self._list_mode_timer.stop()
+        # When turning on/off the load, record the details for the battery log
+        # or other purposes that may be written in the future
+        if state:
+            self._load_on_time = time.time()
+            self._batt_log_initial_voltage = None
+            # And if we're in List mode, reset to step None (it will go to 0 when
+            # triggered)
+            if self._cur_overall_mode == 'List':
                 self._list_mode_cur_step_num = None
-                self._list_mode_stopping = False
-                self._list_mode_running = False
-                self._update_list_table_graph(list_step_only=True)
+        else:
+            self._load_off_time = time.time()
+            # Any change from one overall mode to another (e.g. leaving List mode
+            # for any reason) will pass through here, so this takes care of stopping
+            # the timer in all those cases
+            self._list_mode_timer.stop()
+            self._list_mode_cur_step_num = None
+            self._list_mode_stopping = False
+            self._list_mode_running = False
+            self._update_list_table_graph(list_step_only=True)
 
-            if not state and self._cur_overall_mode == 'Battery':
-                # For some reason when using Battery mode remotely, when the test is
-                # complete (or aborted), the ADDCAP field is not automatically updated
-                # like it is when you run a test from the front panel. So we do the
-                # computation and update it here.
-                disch_cap = self._inst.measure_battery_capacity()
-                add_cap = self._inst.measure_battery_add_capacity()
-                self._inst.write(f':BATTERY:ADDCAP {disch_cap + add_cap}')
-                # Update the battery log entries
-                if self._load_on_time is not None and self._load_off_time is not None:
-                    level = self._param_state[':BATTERY:LEVEL']
-                    match self._cur_const_mode:
-                        case 'Current':
-                            batt_mode = f'CC {level:.3f}A'
-                        case 'Power':
-                            batt_mode = f'CP {level:.3f}W'
-                        case 'Resistance':
-                            batt_mode = f'CR {level:.3f}\u2126'
-                    self._batt_log_modes.append(batt_mode)
-                    stop_cond = ''
-                    if self._param_state[':BATTERY:VOLTAGE:STATE']:
-                        v = self._param_state[':BATTERY:VOLTAGE']
-                        stop_cond += f'Vmin {v:.3f}V'
-                    if self._param_state[':BATTERY:CAP:STATE']:
-                        if stop_cond != '':
-                            stop_cond += ' or '
-                            cap = self._param_state[':BATTERY:CAP']/1000
-                        stop_cond += f'Cap {cap:3f}Ah'
-                    if self._param_state[':BATTERY:TIMER:STATE']:
-                        if stop_cond != '':
-                            stop_cond += ' or '
-                        stop_cond += 'Time '+self._time_to_hms(
-                            int(self._param_state[':BATTERY:TIMER']))
-                    if stop_cond == '':
-                        self._batt_log_stop_cond.append('None')
-                    else:
-                        self._batt_log_stop_cond.append(stop_cond)
-                    self._batt_log_initial_voltages.append(self._batt_log_initial_voltage)
-                    self._batt_log_start_times.append(self._load_on_time)
-                    self._batt_log_end_times.append(self._load_off_time)
-                    self._batt_log_run_times.append(self._load_off_time -
-                                                    self._load_on_time)
-                    self._batt_log_caps.append(disch_cap)
+        if not state and self._cur_overall_mode == 'Battery':
+            # For some reason when using Battery mode remotely, when the test is
+            # complete (or aborted), the ADDCAP field is not automatically updated
+            # like it is when you run a test from the front panel. So we do the
+            # computation and update it here.
+            disch_cap = self._inst.measure_battery_capacity() * 1000
+            add_cap = self._inst.measure_battery_add_capacity() * 1000
+            # ADDCAP takes mAh
+            self._inst.write(f':BATTERY:ADDCAP {disch_cap + add_cap}')
+            # Update the battery log entries
+            if self._load_on_time is not None and self._load_off_time is not None:
+                level = self._param_state[':BATTERY:LEVEL']
+                match self._cur_const_mode:
+                    case 'Current':
+                        batt_mode = f'CC {level:.3f}A'
+                    case 'Power':
+                        batt_mode = f'CP {level:.3f}W'
+                    case 'Resistance':
+                        batt_mode = f'CR {level:.3f}\u2126'
+                self._batt_log_modes.append(batt_mode)
+                stop_cond = ''
+                if self._param_state[':BATTERY:VOLTAGE:STATE']:
+                    v = self._param_state[':BATTERY:VOLTAGE']
+                    stop_cond += f'Vmin {v:.3f}V'
+                if self._param_state[':BATTERY:CAP:STATE']:
+                    if stop_cond != '':
+                        stop_cond += ' or '
+                        cap = self._param_state[':BATTERY:CAP']/1000
+                    stop_cond += f'Cap {cap:3f}Ah'
+                if self._param_state[':BATTERY:TIMER:STATE']:
+                    if stop_cond != '':
+                        stop_cond += ' or '
+                    stop_cond += 'Time '+self._time_to_hms(
+                        int(self._param_state[':BATTERY:TIMER']))
+                if stop_cond == '':
+                    self._batt_log_stop_cond.append('None')
+                else:
+                    self._batt_log_stop_cond.append(stop_cond)
+                self._batt_log_initial_voltages.append(self._batt_log_initial_voltage)
+                self._batt_log_start_times.append(self._load_on_time)
+                self._batt_log_end_times.append(self._load_off_time)
+                self._batt_log_run_times.append(self._load_off_time -
+                                                self._load_on_time)
+                self._batt_log_caps.append(disch_cap)
 
         if update_inst:
             new_param_state = {':INPUT:STATE': state}
             self._update_param_state_and_inst(new_param_state)
         else:
             self._param_state[':INPUT:STATE'] = state
-        self._update_widgets()
+
+        if update_widgets:
+            self._update_widgets()
 
     def _update_short_state(self, state):
         new_param_state = {':SHORT:STATE': state}
@@ -2158,109 +2353,129 @@ Copyright 2022, Robert S. French"""
             self._show_or_disable_widgets(param_info['widgets'])
 
         # Now we go through the details for each parameter and fill in the widget
-        # value and set the widget parameters, as appropriate.
-        params = param_info['params']
-        mode_name = param_info['mode_name']
+        # value and set the widget parameters, as appropriate. We do the General
+        # parameters first and then the parameters for the current mode.
         new_param_state = {}
-        for scpi_cmd, param_full_type, *rest in params:
-            if isinstance(scpi_cmd, (tuple, list)):
-                # Ignore the boolean flag
-                scpi_cmd = scpi_cmd[0]
-            param_type = param_full_type[-1]
+        for phase in range(2):
+            if phase == 0:
+                params = _SDL_MODE_PARAMS['General']['params']
+                mode_name = None
+            else:
+                params = param_info['params']
+                mode_name = param_info['mode_name']
+            for scpi_cmd, param_full_type, *rest in params:
+                if isinstance(scpi_cmd, (tuple, list)):
+                    # Ignore the boolean flag
+                    scpi_cmd = scpi_cmd[0]
+                param_type = param_full_type[-1]
 
-            # Parse out the label and main widget REs and the min/max values
-            match len(rest):
-                case 2:
-                    # Just a label and main widget, no value range
-                    widget_label, widget_main = rest
-                case 4:
-                    # A label and main widget with min/max value
-                    widget_label, widget_main, min_val, max_val = rest
-                    trans = self._transient_string()
-                    if min_val in ('C', 'V', 'P'):
-                        min_val = 0
-                    elif min_val == 'S':
-                        min_val = 0.001
-                    elif isinstance(min_val, str) and min_val.startswith('W:'):
-                        if minmax_ok:
-                            # This is needed because when we're first loading up the
-                            # widgets from a cold start, the paired widget may not
-                            # have a good min value yet
-                            min_val = self._widget_registry[min_val[2:]].value()
-                        else:
+                # Parse out the label and main widget REs and the min/max values
+                match len(rest):
+                    case 1:
+                        # For General, these parameters don't have associated widgets
+                        assert rest[0] in (False, True)
+                        widget_label = None
+                        widget_main = None
+                    case 2:
+                        # Just a label and main widget, no value range
+                        widget_label, widget_main = rest
+                    case 4:
+                        # A label and main widget with min/max value
+                        widget_label, widget_main, min_val, max_val = rest
+                        trans = self._transient_string()
+                        if min_val in ('C', 'V', 'P'):
                             min_val = 0
-                    if isinstance(max_val, str):
-                        match max_val[0]:
-                            case 'C': # Based on current range selection (5A, 30A)
-                                max_val = self._param_state[f':{mode_name}{trans}:IRANGE']
-                                max_val = float(max_val)
-                            case 'V': # Based on voltage range selection (36V, 150V)
-                                max_val = self._param_state[f':{mode_name}{trans}:VRANGE']
-                                max_val = float(max_val)
-                            case 'P': # SDL1020 is 200W, SDL1030 is 300W
-                                max_val = self._inst._max_power
-                            case 'S': # Slew range depends on IRANGE
-                                if self._param_state[
-                                        f':{mode_name}{trans}:IRANGE'] == '5':
-                                    max_val = 0.5
-                                else:
-                                    max_val = 2.5
-                            case 'W':
-                                if minmax_ok:
-                                    # This is needed because when we're first loading up
-                                    # the widgets from a cold start, the paired widget
-                                    # may not have a good max value yet
-                                    max_val = self._widget_registry[max_val[2:]].value()
-                                else:
-                                    max_val = 1000000000
-                case _:
-                    assert False, f'Unknown widget parameters {rest}'
+                        elif min_val == 'S':
+                            min_val = 0.001
+                        elif isinstance(min_val, str) and min_val.startswith('W:'):
+                            if minmax_ok:
+                                # This is needed because when we're first loading up the
+                                # widgets from a cold start, the paired widget may not
+                                # have a good min value yet
+                                min_val = self._widget_registry[min_val[2:]].value()
+                            else:
+                                min_val = 0
+                        if isinstance(max_val, str):
+                            match max_val[0]:
+                                case 'C': # Based on current range selection (5A, 30A)
+                                    # Don't need to check for mode_name being None
+                                    # because that will never happen for C/V/P/S
+                                    max_val = self._param_state[f':{mode_name}{trans}:IRANGE']
+                                    max_val = float(max_val)
+                                case 'V': # Based on voltage range selection (36V, 150V)
+                                    max_val = self._param_state[f':{mode_name}{trans}:VRANGE']
+                                    max_val = float(max_val)
+                                case 'P': # SDL1020 is 200W, SDL1030 is 300W
+                                    max_val = self._inst._max_power
+                                case 'S': # Slew range depends on IRANGE
+                                    if self._param_state[
+                                            f':{mode_name}{trans}:IRANGE'] == '5':
+                                        max_val = 0.5
+                                    else:
+                                        max_val = 2.5
+                                case 'W':
+                                    if minmax_ok:
+                                        # This is needed because when we're first loading up
+                                        # the widgets from a cold start, the paired widget
+                                        # may not have a good max value yet
+                                        max_val = self._widget_registry[max_val[2:]].value()
+                                    else:
+                                        max_val = 1000000000
+                    case _:
+                        assert False, f'Unknown widget parameters {rest}'
 
-            if widget_label is not None:
-                self._widget_registry[widget_label].show()
-                self._widget_registry[widget_label].setEnabled(True)
+                if widget_label is not None:
+                    self._widget_registry[widget_label].show()
+                    self._widget_registry[widget_label].setEnabled(True)
 
-            val = self._param_state[f':{mode_name}:{scpi_cmd}']
+                if widget_main is not None:
+                    full_scpi_cmd = f':{scpi_cmd}'
+                    if mode_name is not None:
+                        full_scpi_cmd = f':{mode_name}:{scpi_cmd}'
+                    val = self._param_state[full_scpi_cmd]
 
-            if param_type == 'd' or param_type == 'f':
-                widget = self._widget_registry[widget_main]
-                widget.setEnabled(True)
-                widget.show()
-                widget.setMaximum(max_val)
-                widget.setMinimum(min_val)
+                    if param_type in ('d', 'f', 'b'):
+                        widget = self._widget_registry[widget_main]
+                        widget.setEnabled(True)
+                        widget.show()
+                    if param_type in ('d', 'f'):
+                        widget.setMaximum(max_val)
+                        widget.setMinimum(min_val)
 
-            match param_type:
-                case 'd': # Decimal
-                    widget.setDecimals(0)
-                    widget.setValue(val)
-                    # It's possible that setting the minimum or maximum caused the value
-                    # to change, which means we need to update our state.
-                    if val != int(float(widget.value())):
-                        widget_val = float(widget.value())
-                        new_param_state[f':{mode_name}:{scpi_cmd}'] = widget_val
-                case 'f': # Floating point
-                    assert param_full_type[0] == '.'
-                    dec = int(param_full_type[1:-1])
-                    dec10 = 10 ** dec
-                    widget.setDecimals(dec)
-                    widget.setValue(val)
-                    # It's possible that setting the minimum or maximum caused the value
-                    # to change, which means we need to update our state.
-                    # Note floating point comparison isn't precise so we only look to
-                    # the precision of the number of decimals.
-                    if int(val*dec10+.5) != int(widget.value()*dec10+.5):
-                        widget_val = float(widget.value())
-                        new_param_state[f':{mode_name}:{scpi_cmd}'] = widget_val
-                case 'r': # Radio button
-                    # In this case only the widget_main is an RE
-                    for trial_widget in self._widget_registry:
-                        if re.fullmatch(widget_main, trial_widget):
-                            widget = self._widget_registry[trial_widget]
-                            widget.setEnabled(True)
-                            checked = trial_widget.upper().endswith('_'+str(val).upper())
-                            widget.setChecked(checked)
-                case _:
-                    assert False, f'Unknown param type {param_type}'
+                    match param_type:
+                        case 'b': # Boolean - used for checkboxes
+                            widget.setChecked(val)
+                        case 'd': # Decimal
+                            widget.setDecimals(0)
+                            widget.setValue(val)
+                            # It's possible that setting the minimum or maximum caused the value
+                            # to change, which means we need to update our state.
+                            if val != int(float(widget.value())):
+                                widget_val = float(widget.value())
+                                new_param_state[full_scpi_cmd] = widget_val
+                        case 'f': # Floating point
+                            assert param_full_type[0] == '.'
+                            dec = int(param_full_type[1:-1])
+                            dec10 = 10 ** dec
+                            widget.setDecimals(dec)
+                            widget.setValue(val)
+                            # It's possible that setting the minimum or maximum caused the value
+                            # to change, which means we need to update our state.
+                            # Note floating point comparison isn't precise so we only look to
+                            # the precision of the number of decimals.
+                            if int(val*dec10+.5) != int(widget.value()*dec10+.5):
+                                widget_val = float(widget.value())
+                                new_param_state[full_scpi_cmd] = widget_val
+                        case 'r': # Radio button
+                            # In this case only the widget_main is an RE
+                            for trial_widget in self._widget_registry:
+                                if re.fullmatch(widget_main, trial_widget):
+                                    widget = self._widget_registry[trial_widget]
+                                    widget.setEnabled(True)
+                                    checked = trial_widget.upper().endswith('_'+str(val).upper())
+                                    widget.setChecked(checked)
+                        case _:
+                            assert False, f'Unknown param type {param_type}'
 
         self._update_param_state_and_inst(new_param_state)
 
@@ -2281,6 +2496,10 @@ Copyright 2022, Robert S. French"""
             self._widget_registry['FrameRange'].setEnabled(False)
             self._widget_registry['FrameMainParameters'].setEnabled(True)
             self._widget_registry['FrameAuxParameters'].setEnabled(True)
+            self._widget_registry['GlobalParametersRow'].setEnabled(False)
+            # See description of bug at the top of this file
+            self._widget_registry['MainParametersLabel_BattC'].setEnabled(False)
+            self._widget_registry['MainParameters_BattC'].setEnabled(False)
         elif self._cur_overall_mode == 'List' and self._param_state[':INPUT:STATE']:
             # List mode is running
             self._widget_registry['FrameMode'].setEnabled(False)
@@ -2288,12 +2507,16 @@ Copyright 2022, Robert S. French"""
             self._widget_registry['FrameRange'].setEnabled(False)
             self._widget_registry['FrameMainParameters'].setEnabled(False)
             self._widget_registry['FrameAuxParameters'].setEnabled(False)
+            self._widget_registry['GlobalParametersRow'].setEnabled(False)
         else:
             self._widget_registry['FrameMode'].setEnabled(True)
             self._widget_registry['FrameConstant'].setEnabled(True)
             self._widget_registry['FrameRange'].setEnabled(True)
             self._widget_registry['FrameMainParameters'].setEnabled(True)
             self._widget_registry['FrameAuxParameters'].setEnabled(True)
+            self._widget_registry['GlobalParametersRow'].setEnabled(True)
+            self._widget_registry['MainParametersLabel_BattC'].setEnabled(True)
+            self._widget_registry['MainParameters_BattC'].setEnabled(True)
 
         status_msg = None
         if self._cur_overall_mode == 'List':
@@ -2308,6 +2531,8 @@ List status tracking is an approximation."""
 
     def _update_list_table_graph(self, update_table=True, list_step_only=False):
         """Update the list table and associated plot if data has changed."""
+        if self._cur_overall_mode != 'List':
+            return
         vrange = float(self._param_state[':LIST:VRANGE'])
         irange = float(self._param_state[':LIST:IRANGE'])
         # If the ranges changed, we may have to clip the values in the table
@@ -2349,8 +2574,9 @@ List status tracking is an approximation."""
                                   for x in self._list_mode_levels]
         self._list_mode_widths = [min(max(x, ranges[1][0]), ranges[1][1])
                                   for x in self._list_mode_widths]
-        self._list_mode_slews = [min(max(x, ranges[2][0]), ranges[2][1])
-                                 for x in self._list_mode_slews]
+        if len(ranges) == 3:
+            self._list_mode_slews = [min(max(x, ranges[2][0]), ranges[2][1])
+                                     for x in self._list_mode_slews]
         if update_table:
             # We don't always want to update the table, because in edit mode when the
             # user changes a value, the table will have already been updated internally,
@@ -2638,44 +2864,16 @@ class InstrumentSiglentSDL1000(Device4882):
 [:SOURce]:PROGram:STATe?
 [:SOURce]:PROGram:TEST? <step>
 
-[:SOURce]:VOLTage [:LEVel]:ON <step>
-[:SOURce]:VOLTage [:LEVel]:ON?
-[:SOURce]:VOLTage :LATCh[:STATe] {ON | OFF | 0 | 1}
-[:SOURce]:VOLTage :LATCh[:STATe]?
-[:SOURce]:EXT:INPUT[:StATe] {ON | OFF | 0 | 1}
-[:SOURce]:EXT:INPUT[:StATe]?
-[:SOURce]:CURRent:PROTection:STATe {ON | OFF | 0 | 1}
-[:SOURce]:EXT:INPUT[:StATe]?
-[:SOURce]:CURRent:PROTection:LEVel {< value | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:PROTection:LEVel?
-[:SOURce]:CURRent:PROTection:DELay {< value | MINimum | MAXimum | DEFault}
-[:SOURce]:CURRent:PROTection:DELay?
-[:SOURce]:POWer:PROTection:STATe {ON | OFF | 0 | 1}
-[:SOURce]:POWer:PROTection:STATe?
-[:SOURce]:POWer:PROTection:LEVel {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:POWer:PROTection:LEVel?
-[:SOURce]:POWer:PROTection:DELay {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:POWer:PROTection:DELay?
-
-SYSTem:SENSe[:STATe] {ON | OFF | 0 | 1}
-SYSTem:SENSe[:STATe]?
-SYSTem:IMONItor[:STATe] {ON | OFF | 0 | 1}
-SYSTem:IMONItor[:STATe]?
-SYSTem:VMONItor [: {ON | OFF | 0 | 1}
-SYSTem:VMONItor[:STATe]?
 STOP:ON:FAIL[:STATe] {ON | OFF | 0 | 1}
 STOP:ON:FAIL[:STATe]?
 
-TRIGger:SOURce {MANUal | EXTernal | BUS}
-TRIGger:SOURce?
-SENSe:AVERage:COUNt {6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14}
-SENSe:AVERage:COUNt?
 EXT:MODE {INT | EXTI | EXTV}
 EXT:MODE?
 EXT:IRANGe <value>
 EXT:IRANGe?
 EXT:VRANGe <value>
 EXT:VRANGe?
+
 TIME:TEST[:STATe] {ON | OFF | 0 | 1}
 TIME:TEST[:STATe]?
 TIME:TEST:VOLTage:LOW {< value > | MINimum | MAXimum | DEFault}
