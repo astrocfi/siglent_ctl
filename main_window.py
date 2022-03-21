@@ -118,7 +118,7 @@ class MainWindow(QWidget):
 
         self._plot_window_widgets = []
 
-        self._paused = False
+        self._paused = True
 
         ### Layout the widgets
 
@@ -196,7 +196,8 @@ class MainWindow(QWidget):
         button = QPushButton('Erase All')
         layouth2.addWidget(button)
         button.clicked.connect(self._on_erase_all)
-        button = QPushButton('\u23F8 Pause')
+        button = QPushButton()
+        self._widget_pause_go = button
         layouth2.addWidget(button)
         button.clicked.connect(self._on_pause_go)
         layouth2.addStretch()
@@ -207,6 +208,8 @@ class MainWindow(QWidget):
         layoutv2.addWidget(self._widget_measurement_elapsed)
         self._widget_measurement_points = QLabel('# Data Points: 0')
         layoutv2.addWidget(self._widget_measurement_points)
+
+        self._update_pause_go_button()
 
         self._heartbeat_timer = QTimer(self.app)
         self._heartbeat_timer.timeout.connect(self._heartbeat_update)
@@ -233,14 +236,16 @@ class MainWindow(QWidget):
 
     def _on_pause_go(self):
         """Handle Pause/Go button."""
-        button = self.sender()
         self._paused = not self._paused
+        self._update_pause_go_button()
+
+    def _update_pause_go_button(self):
         if self._paused:
-            button.setText('\u23F5 Run')
-            button.setStyleSheet('background-color: #80ff40;')
+            self._widget_pause_go.setText('\u23F5 Run')
+            self._widget_pause_go.setStyleSheet('background-color: #80ff40;')
         else:
-            button.setText('\u23F8 Pause')
-            button.setStyleSheet('background-color: #ff8080;')
+            self._widget_pause_go.setText('\u23F8 Pause')
+            self._widget_pause_go.setStyleSheet('background-color: #ff8080;')
 
     def closeEvent(self, event):
         # Close all the sub-windows, allowing them to shut down peacefully
@@ -291,27 +296,29 @@ class MainWindow(QWidget):
         # Although technically each measurement takes place at a different time,
         # it's important that we treat each measurement group as being at a single
         # time so we can match up measurements in X/Y plots and file saving.
-        if len(self._open_resources) == 0 or self._paused:
+        if len(self._open_resources) == 0:
             return
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
                 measurements = config_widget.update_measurements()
-                for meas_key, meas in measurements.items():
-                    name = meas['name']
-                    key = (inst.name, name)
-                    if key not in self._measurements:
-                        self._measurements[key] = [np.nan] * len(self._measurement_times)
-                        self._measurement_units[key] = meas['unit']
-                        self._measurement_names[key] = f'{inst.name}: {name}'
-                    val = meas['val']
-                    if val is None:
-                        val = math.nan
-                    self._measurements[key].append(val)
-        cur_time = time.time()
-        self._measurement_times.append(cur_time)
-
-        for plot_widget in self._plot_window_widgets:
-            plot_widget.update()
+                if not self._paused:
+                    for meas_key, meas in measurements.items():
+                        name = meas['name']
+                        key = (inst.name, name)
+                        if key not in self._measurements:
+                            self._measurements[key] = ([np.nan] *
+                                                       len(self._measurement_times))
+                            self._measurement_units[key] = meas['unit']
+                            self._measurement_names[key] = f'{inst.name}: {name}'
+                        val = meas['val']
+                        if val is None:
+                            val = math.nan
+                        self._measurements[key].append(val)
+        if not self._paused:
+            cur_time = time.time()
+            self._measurement_times.append(cur_time)
+            for plot_widget in self._plot_window_widgets:
+                plot_widget.update()
 
     def _menu_do_about(self):
         """Show the About box."""

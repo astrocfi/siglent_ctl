@@ -18,19 +18,10 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** SDL1000 **
 
-- Add rise and fall time measurements (default off)
-- Measure external source (try it with remote cable)
 - Implement Program mode
   - Follow along with the steps and highlight rows
 - Various other SDL features:
-  - Breakover voltage
-  - External control switch
-  - Current protection
-  - Power protection
-  - Sense various back of device terminals
   - Stop on fail
-  - Average count
-  - External mode
 
 ** SDS **
 
@@ -59,3 +50,14 @@ Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
 
 - Histogram View
 - Running statistics
+
+** Measurement **
+
+- Mechanism to auto-start based on an instrument (e.g. load on)
+
+** Misc **
+
+- Virtual instruments that do math, generate curves, etc
+- Non-VISA mode with direct IP connection
+- Instruments sampling at different rates
+- Multi-threading for increased performance
