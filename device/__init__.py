@@ -51,5 +51,5 @@ def create_device(rm, resource_name):
         raise UnknownInstrumentType(idn)
     new_dev = cls(rm, resource_name)
     new_dev.connect(resource=dev._resource)
-    print(f'Found a {manufacturer} {model}')
+    # print(f'Found a {manufacturer} {model}')
     return new_dev

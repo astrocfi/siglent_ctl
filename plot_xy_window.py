@@ -344,6 +344,7 @@ class PlotXYWindow(QWidget):
                 break
         for source_num in range(source_num, self._max_plot_items):
             self._plot_y_sources[source_num] = None
+        self._plot_x_source = 'Elapsed Time'
         self._update_widgets()
         self._update_axes()
 
@@ -351,6 +352,7 @@ class PlotXYWindow(QWidget):
         """Handle Show None button."""
         for source_num in range(self._max_plot_items):
             self._plot_y_sources[source_num] = None
+        self._plot_x_source = 'Elapsed Time'
         self._update_widgets()
         self._update_axes()
 
@@ -425,8 +427,9 @@ class PlotXYWindow(QWidget):
         self._widget_x_axis_combo.addItem('Absolute Time', userData='Absolute Time')
         for index, (key, name) in enumerate(self._main_window._measurement_names.items()):
             self._widget_x_axis_combo.addItem(name, userData=key)
-            if key == self._plot_x_source:
-                self._widget_x_axis_combo.setCurrentIndex(index)
+            # Just always default to Elapsed Time
+            # if key == self._plot_x_source:
+            #     self._widget_x_axis_combo.setCurrentIndex(index)
 
         # Y axis selections
         for source_num, combo in enumerate(self._plot_y_source_combos):

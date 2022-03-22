@@ -221,7 +221,7 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
               ':CURRENT:PROTECTION:STATE'), '.3f', 'GlobalParametersLabel_CurrentProtL', 'GlobalParameters_CurrentProtL', 0, 30),
             (':CURRENT:PROTECTION:DELAY',   '.3f', 'GlobalParametersLabel_CurrentProtD', 'GlobalParameters_CurrentProtD', 0, 60),
             ((':POWER:PROTECTION:LEVEL',
-              ':POWER:PROTECTION:STATE'),   '.2f', 'GlobalParametersLabel_PowerProtL', 'GlobalParameters_PowerProtL', 0, 30),
+              ':POWER:PROTECTION:STATE'),   '.2f', 'GlobalParametersLabel_PowerProtL', 'GlobalParameters_PowerProtL', 0, 'P'),
             (':POWER:PROTECTION:DELAY',     '.3f', 'GlobalParametersLabel_PowerProtD', 'GlobalParameters_PowerProtD', 0, 60),
          )
         },
@@ -785,6 +785,11 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # Special read of the List Mode parameters
         self._update_list_mode_from_instrument()
+
+        if self._param_state[':TRIGGER:SOURCE'] == 'MANUAL':
+            # No point in using the SDL's panel when the button isn't available
+            new_param_state = {':TRIGGER:SOURCE': 'BUS'}
+            self._update_param_state_and_inst(new_param_state)
 
         # Set things like _cur_overall_mode and _cur_const_mode and update widgets
         self._update_state_from_param_state()
@@ -1672,6 +1677,9 @@ Copyright 2022, Robert S. French"""
         self._param_state['INPUT:STATE'] = 0
         self._update_short_state(0)
         self._param_state['SHORT:STATE'] = 0
+        if self._param_state[':TRIGGER:SOURCE'] == 'Manual':
+            # No point in using the SDL's panel when the button isn't available
+            self._param_state[':TRIGGER:SOURCE'] = 'Bus'
         self.update_instrument()
 
     def _menu_do_reset_device(self):
@@ -2672,6 +2680,9 @@ Copyright 2022, Robert S. French"""
             # See description of bug at the top of this file
             self._widget_registry['MainParametersLabel_BattC'].setEnabled(False)
             self._widget_registry['MainParameters_BattC'].setEnabled(False)
+        elif self._cur_overall_mode == 'Ext \u26A0' and self._param_state[':INPUT:STATE']:
+            # External control mode - can't change range
+            self._widget_registry['FrameRange'].setEnabled(False)
         elif self._cur_overall_mode == 'List' and self._param_state[':INPUT:STATE']:
             # List mode is running
             self._widget_registry['FrameMode'].setEnabled(False)

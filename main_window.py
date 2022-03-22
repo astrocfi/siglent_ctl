@@ -114,7 +114,7 @@ class MainWindow(QWidget):
 
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
-        self._recent_resources.append('TCPIP::192.168.0.63')
+        # self._recent_resources.append('TCPIP::192.168.0.63')
 
         self._plot_window_widgets = []
 
@@ -241,7 +241,7 @@ class MainWindow(QWidget):
 
     def _update_pause_go_button(self):
         if self._paused:
-            self._widget_pause_go.setText('\u23F5 Run')
+            self._widget_pause_go.setText('\u23F5 Record')
             self._widget_pause_go.setStyleSheet('background-color: #80ff40;')
         else:
             self._widget_pause_go.setText('\u23F8 Pause')
@@ -317,8 +317,8 @@ class MainWindow(QWidget):
         if not self._paused:
             cur_time = time.time()
             self._measurement_times.append(cur_time)
-            for plot_widget in self._plot_window_widgets:
-                plot_widget.update()
+        for plot_widget in self._plot_window_widgets:
+            plot_widget.update()
 
     def _menu_do_about(self):
         """Show the About box."""
@@ -373,11 +373,12 @@ Copyright 2022, Robert S. French"""
         except device.UnknownInstrumentType as ex:
             QMessageBox.critical(self, 'Error',
                                  f'Unknown instrument type "{ex.args[0]}"')
-            inst = None # XXX
+            # inst = None
+            return
 
         config_widget = None
         if inst is not None:
-            inst.set_debug(True)
+            # inst.set_debug(True)
             inst.connect()
             config_widget = inst.configure_widget(self)
             config_widget.show()
