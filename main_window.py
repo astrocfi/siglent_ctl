@@ -100,7 +100,7 @@ class MainWindow(QWidget):
         self.setWindowTitle('Siglent Instrument Controller')
 
         self.app = app
-        self.resource_manager = pyvisa.ResourceManager()
+        self.resource_manager = pyvisa.ResourceManager('@py')
 
         # Tuple of (resource_name,
         #           instrument class instance,
@@ -114,7 +114,7 @@ class MainWindow(QWidget):
 
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
-        # self._recent_resources.append('TCPIP::192.168.0.63')
+        self._recent_resources.append('TCPIP::192.168.0.63')
 
         self._plot_window_widgets = []
 
