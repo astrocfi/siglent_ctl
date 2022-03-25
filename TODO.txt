@@ -1,10 +1,11 @@
 - Current status:
 
 - Tab focus?
+- Bug - scatter dot size is not defaulted correctly
 
 ** PyInstaller **
 
-pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6 --noconfirm
+pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6 --hidden-import pyvisa_py --noconfirm --onefile --windowed
 
 https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
