@@ -57,10 +57,18 @@ class IPAddressDialog(QDialog):
 
         layoutv = QVBoxLayout()
         self.setLayout(layoutv)
+        layouth = QHBoxLayout()
+        layoutv.addSpacing(50)
+        layoutv.addLayout(layouth)
+        layoutv.addSpacing(50)
+        layouth.addSpacing(50)
+        layouth.addWidget(QLabel('IP Address:'))
         self._ip_address = QLineEdit()
+        self._ip_address.setStyleSheet('max-width: 7.6em; font-family: "Courier New";')
         self._ip_address.setInputMask('000.000.000.000;_')
         self._ip_address.textChanged.connect(self._validator)
-        layoutv.addWidget(self._ip_address)
+        layouth.addWidget(self._ip_address)
+        layouth.addSpacing(50)
 
         buttons = (QDialogButtonBox.StandardButton.Open |
                    QDialogButtonBox.StandardButton.Cancel)
@@ -124,6 +132,7 @@ class MainWindow(QWidget):
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
         self._recent_resources.append('TCPIP::192.168.0.63')
+        self._recent_resources.append('TCPIP::192.168.0.64')
 
         self._plot_window_widgets = []
 
@@ -229,6 +238,9 @@ class MainWindow(QWidget):
         self._measurement_timer.timeout.connect(self._update)
         self._measurement_timer.setInterval(1000)
         self._measurement_timer.start()
+
+        self.show()
+        # self._menu_do_open_ip()
 
     def _on_interval_changed(self):
         """Handle a new value in the Measurement Interval input."""
@@ -362,16 +374,6 @@ Copyright 2022, Robert S. French"""
                                  f'Resource "{resource_name}" is already open!')
             return
 
-        # Update the recent resource list and put this resource on top
-        try:
-            idx = self._recent_resources.index(resource_name)
-        except ValueError:
-            pass
-        else:
-            del self._recent_resources[idx]
-        self._recent_resources.insert(0, resource_name)
-        self._recent_resources = self._recent_resources[:self._max_recent_resources]
-
         # Create the device
         try:
             inst = device.create_device(self.resource_manager, resource_name)
@@ -392,6 +394,16 @@ Copyright 2022, Robert S. French"""
             config_widget = inst.configure_widget(self)
             config_widget.show()
         self._open_resources.append((resource_name, inst, config_widget))
+
+        # Update the recent resource list and put this resource on top
+        try:
+            idx = self._recent_resources.index(resource_name)
+        except ValueError:
+            pass
+        else:
+            del self._recent_resources[idx]
+        self._recent_resources.insert(0, resource_name)
+        self._recent_resources = self._recent_resources[:self._max_recent_resources]
         self._refresh_menubar_device_recent_resources()
 
         num_existing = len(self._measurement_times)
