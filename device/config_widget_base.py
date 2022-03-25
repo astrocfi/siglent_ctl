@@ -22,6 +22,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
+import platform
+
 from PyQt6.QtWidgets import (QDialog,
                              QLayout,
                              QMenuBar,
@@ -35,6 +37,7 @@ from PyQt6.QtGui import QAction
 class ConfigureWidgetBase(QWidget):
     def __init__(self, main_window, instrument):
         super().__init__()
+        self._style_env = main_window._style_env
         self._main_window = main_window
         self._inst = instrument
         self._param_state = {}

@@ -124,6 +124,60 @@ from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
 
 
+# Style sheets for different operating systems
+_STYLE_SHEET = {
+    'FrameMode': {
+        'windows': 'QGroupBox { min-height: 10em; max-height: 10em; }',
+        'linux': 'QGroupBox { min-height: 10.5em; max-height: 10.5em; }',
+    },
+    'MainParams': {
+        'windows': """QGroupBox { min-width: 11em; max-width: 11em;
+                                  min-height: 10em; max-height: 10em; }
+                      QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+                   """,
+        'linux': """QGroupBox { min-width: 12.5em; max-width: 12.5em;
+                                min-height: 10.5em; max-height: 10.5em; }
+                    QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+                 """,
+    },
+    'AuxParams': {
+        'windows': """QGroupBox { min-width: 11em; max-width: 11em;
+                                  min-height: 5em; max-height: 5em; }
+                      QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+                   """,
+        'linux': """QGroupBox { min-width: 12.5em; max-width: 12.5em;
+                                min-height: 5em; max-height: 5em; }
+                    QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
+                 """,
+    },
+    'TriggerButton': {
+        'windows': """QPushButton {
+                          min-width: 2.9em; max-width: 2.9em;
+                          min-height: 1.5em; max-height: 1.5em;
+                          border-radius: 0.75em; border: 4px solid black;
+                          font-weight: bold; font-size: 18px;
+                          background: #ffff80; }
+                      QPushButton:pressed { border: 6px solid black; }""",
+        'linux': """QPushButton {
+                        min-width: 3.2em; max-width: 3.2em;
+                        min-height: 1.5em; max-height: 1.5em;
+                        border-radius: 0.75em; border: 4px solid black;
+                        font-weight: bold; font-size: 18px;
+                        background: #ffff80; }
+                    QPushButton:pressed { border: 6px solid black; }""",
+    },
+    'ListTable': {
+        'windows': """QTableView { min-width: 18em; max-width: 18em;
+                                   min-height: 11em; max-height: 11em; }""",
+        'linux': """QTableView { min-width: 18em; max-width: 18em;
+                                 min-height: 10em; max-height: 10em; }""",
+    },
+    'ListPlot': {
+        'windows': (365, 178),
+        'linux': (485, 172),
+    },
+}
+
 # Widget names referenced below are stored in the self._widget_registry dictionary.
 # Widget descriptors can generally be anything permitted by a standard Python
 # regular expression.
@@ -1047,7 +1101,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         row_layout.addLayout(layouts)
         frame = QGroupBox('Mode')
         self._widget_registry['FrameMode'] = frame
-        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
+        frame.setStyleSheet(_STYLE_SHEET['FrameMode'][self._style_env])
         layouts.addWidget(frame)
         layouth = QHBoxLayout(frame)
         layoutv = QVBoxLayout()
@@ -1094,7 +1148,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         # Mode radio buttons: CV, CC, CP, CR
         frame = QGroupBox('Constant')
         self._widget_registry['FrameConstant'] = frame
-        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
+        frame.setStyleSheet(_STYLE_SHEET['FrameMode'][self._style_env])
         row_layout.addWidget(frame)
         layoutv = QVBoxLayout(frame)
         bg = QButtonGroup(layouts)
@@ -1154,11 +1208,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY'),
                 ('# Steps',     'ListSteps',    None,     'STEP'),
                 ('@Run Count',  'ListCount',    None,     'COUNT')))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 10em; max-height: 10em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
+        frame.setStyleSheet(_STYLE_SHEET['MainParams'][self._style_env])
         row_layout.addWidget(frame)
 
         ### ROW 1, COLUMN 4 ###
@@ -1201,11 +1251,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 ('I Max',       'OCPMAX',   'A',         'MAX'),
                 ('P Min',       'OPPMIN',   'W',         'MIN'),
                 ('P Max',       'OPPMAX',   'W',         'MAX')))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 5em; max-height: 5em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
+        frame.setStyleSheet(_STYLE_SHEET['AuxParams'][self._style_env])
         layouts.addWidget(frame)
 
         ###################
@@ -1260,7 +1306,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                                                                     ':POWER:PROTECTION:STATE')),
                 ('Power Protection Delay',    'PowerProtD',   's', ':POWER:PROTECTION:DELAY'),
             ), layout=layoutv)
-        ss = """QDoubleSpinBox { min-width: 4.5em; max-width: 4.5em; }
+        ss = """QDoubleSpinBox { min-width: 5em; max-width: 5em; }
              """
         frame.setStyleSheet(ss)
         layoutv.addStretch()
@@ -1295,9 +1341,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         table = QTableView(alternatingRowColors=True)
         table.setModel(ListTableModel(self._on_list_table_change))
         row_layout.addWidget(table)
-        ss = """QTableView { min-width: 18em; max-width: 18em;
-                             min-height: 11em; max-height: 11em; }"""
-        table.setStyleSheet(ss)
+        table.setStyleSheet(_STYLE_SHEET['ListTable'][self._style_env])
         table.verticalHeader().setMinimumWidth(30)
         self._widget_registry['ListTable'] = table
 
@@ -1307,7 +1351,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         pw.plotItem.setMenuEnabled(False)
         self._list_mode_level_plot = pw.plot([], pen=0)
         self._list_mode_step_plot = pw.plot([], pen=1)
-        pw.setMaximumSize(365, 178) # XXX Warning magic constants!
+        size = _STYLE_SHEET['ListPlot'][self._style_env]
+        pw.setMaximumSize(size[0], size[1]) # XXX Warning magic constants!
         row_layout.addWidget(pw)
         self._widget_registry['ListPlot'] = pw
 
@@ -1396,14 +1441,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         w = QPushButton('TRIG\u25CE')
         w.clicked.connect(self._on_click_trigger)
-        ss = """QPushButton {
-                    min-width: 2.9em; max-width: 2.9em;
-                    min-height: 1.5em; max-height: 1.5em;
-                    border-radius: 0.75em; border: 4px solid black;
-                    font-weight: bold; font-size: 18px;
-                    background: #ffff80; }
-                QPushButton:pressed { border: 6px solid black; }"""
-        w.setStyleSheet(ss)
+        w.setStyleSheet(_STYLE_SHEET['TriggerButton'][self._style_env])
         row_layout.addWidget(w)
         self._widget_registry['Trigger'] = w
 
