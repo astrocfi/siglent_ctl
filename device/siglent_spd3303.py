@@ -1,14 +1,12 @@
 ################################################################################
-# siglent_sdl1000.py
+# siglent_spd3303.py
 #
 # This file is part of the siglent_ctl software suite.
 #
-# It contains all code related to the Siglent SDL1000 series of programmable
+# It contains all code related to the Siglent SPD3303X series of programmable
 # DC electronic loads:
-#   - SDL1020X
-#   - SDL1020X-E
-#   - SDL1030X
-#   - SDL1030X-E
+#   - SPD3303X
+#   - SPD3303X-E
 #
 # Copyright 2022 Robert S. French (rfrench@rfrench.org)
 #
@@ -26,74 +24,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
-################################################################################
-# This module contains two basic sections. The GUI for the control widget is
-# specified by the InstrumentSiglentSDL1000ConfigureWidget class. The internal
-# instrument driver is specified by the InstrumentSiglentSDL1000 class.
-#
-# Some general notes:
-#
-# ** SIGLENT SCPI DOCUMENTATION
-#
-# There are errors and omissions in the "Siglent Programming Guide: SDL1000X
-# Programmable DC Electronic Load" document (PG0801X-C01A dated 2019). In particular
-# there are two SCPI commands that we need that are undocumented:
-#
-# - SYST:REMOTE:STATE locks the instrument keyboard and shows the remote control
-#   icon.
-# - :FUNCTION:MODE[?] which is described below
-#
-# Figuring out what mode the instrument is in and setting it to a new mode is
-# a confusing mismash of operations. Here are the details.
-#
-# :FUNCTION:MODE? is an undocumented SCPI command that is ONLY useful for queries. You
-#   cannot use it to set the mode! It returns one of:
-#       BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
-#   Note that LED is considered a BASIC mode.
-#
-# :FUNCTION <X> is used to set the "constant X" mode while in the BASIC mode. If the
-#   instrument is not currently in the BASIC mode, this places it in the BASIC mode.
-#   There is no way to go into the BASIC mode without also specifying the "constant"
-#   mode. Examples:
-#       :FUNCTION VOLTAGE
-#       :FUNCTION CURRENT
-#       :FUNCTION POWER
-#       :FUNCTION RESISTANCE
-#   LED mode is considered a BASIC mode, so to put the instrument in LED mode,
-#   execute:
-#       :FUNCTION LED
-#   It can also be used to query the current "constant X" mode:
-#       :FUNCTION?
-#
-# :FUNCTION:TRANSIENT <X> does the same thing as :FUNCTION but for the TRANSIENT
-#   (Dynamic) mode. It can both query the current "constant X" mode and put the
-#   instrument into the Dynamic mode.
-#
-# To place the instrument in other modes, you use specific commands:
-#   :BATTERY:FUNC
-#   :OCP:FUNC
-#   :OPP:FUNC
-#   :LIST:STATE:ON
-#   :PROGRAM:STATE:ON
-################################################################################
-
-################################################################################
-# Known bugs in the SDL1000:
-#
-# - If you are in List mode and you trigger during the final step, wait for the
-#   step to complete, then trigger again to restart the sequence, it will continue
-#   with the step past the end of the current # of steps (which is inactive)
-#   before returning to step 0. We don't try to fix this problem, but we do
-#   display a warning dialog when it's about to occur.
-# - In Battery mode with Constant Current selected, the SCPI command to update
-#   the desired current value will cause the value to change on the display
-#   (and in the SDL's memory), but won't actually affect the currently running
-#   test. This isn't true for Constant Power or Constant Resistance. Changes to
-#   those values take effect immediately. But none of these can be changed from
-#   the panel. So we disable all changes while the test is running.
-################################################################################
-
-
 import json
 import re
 import time
@@ -102,6 +32,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QAbstractSpinBox,
                              QButtonGroup,
                              QCheckBox,
+                             QDial,
                              QDoubleSpinBox,
                              QFileDialog,
                              QGridLayout,
@@ -122,454 +53,6 @@ import pyqtgraph as pg
 
 from .device import Device4882
 from .config_widget_base import ConfigureWidgetBase
-
-
-# Widget names referenced below are stored in the self._widget_registry dictionary.
-# Widget descriptors can generally be anything permitted by a standard Python
-# regular expression.
-
-# This dictionary maps from the "overall" mode (shown in the left radio button group)
-# to the set of widgets that should be shown or hidden.
-#   !   means hide
-#   ~   means set as not enabled (greyed out)
-#       No prefix means show and enable
-# Basically, the Dynamic modes (continuous, pulse, trigger) are only available in
-# Dynamic mode, and the Constant X modes are only available in Basic, Dynamic,
-# Battery (except CV), and List modes.
-_SDL_OVERALL_MODES = {
-    'Basic':      ('!Dynamic_Mode_.*', 'Const_.*', '~ListRow'),
-    'Dynamic':    ('Dynamic_Mode_.*',  'Const_.*', '~ListRow'),
-    'LED':        ('!Dynamic_Mode_.*', '!Const_.*', '~ListRow'),
-    'Battery':    ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Voltage', '~ListRow'),
-    'List':       ('!Dynamic_Mode_.*', 'Const_.*', 'ListRow'),
-    'Program':    ('!Dynamic_Mode_.*', '!Const_.*',
-                   '!Range_Current_.*', '!Range_Voltage_.*', '~ListRow'),
-    'OCPT':       ('!Dynamic_Mode_.*', '!Const_.*', '~ListRow'),
-    'OPPT':       ('!Dynamic_Mode_.*', '!Const_.*', '~ListRow'),
-    'Ext \u26A0': ('!Dynamic_Mode_.*', 'Const_.*', '!Const_Power', '!Const_Resistance',
-                   '~ListRow'),
-}
-
-# This dictionary maps from the current overall mode (see above) and the current
-# "Constant X" mode (if any, None otherwise) to a description of what to do
-# in this combination.
-#   'widgets'       The list of widgets to show/hide/grey out/enable.
-#                   See above for the syntax.
-#   'mode_name'     The string to place at the beginning of a SCPI command.
-#   'params'        A list of parameters active in this mode. Each entry is
-#                   constructed as follows:
-#       0) The SCPI base command. The 'mode_name', if any, will be prepended to give,
-#          e.g. ":VOLTAGE:IRANGE". If there two SCPI commands in a tuple, the second
-#          is a boolean value that is always kept in sync with the first one. If the
-#          first value is zero, the second value is False.
-#       1) The type of the parameter. Options are '.Xf' for a float with a given
-#          number of decimal places, 'd' for an integer, 'b' for a Boolean
-#          (treated the same as 'd' for now), 's' for an arbitrary string,
-#          and 'r' for a radio button.
-#       2) A widget name telling which container widgets to enable (e.g.
-#          the "*Label" boxes around the entry spinners).
-#       3) A widget name telling which widget contains the actual value to read
-#          or set. It is automatically enabled. For a 'r' radio button, this is
-#          a regular expression describing a radio button group. All are set to
-#          unchecked except for the appropriate selected one which is set to
-#          checked.
-#       4) For numerical widgets ('d' and 'f'), the minimum allowed value.
-#       5) For numerical widgets ('d' and 'f'), the maximum allowed value.
-#           For 4 and 5, the min/max can be a constant number or a special
-#           character. 'C' means the limits of the CURRENT RANGE. 'V' means the
-#           limits of the VOLTAGE RANGE. 'P' means the limits of power based
-#           on the SDL model number (200W or 300W). 'S' means the limits of current
-#           slew based on the current IRANGE. It can also be 'W:<widget_name>'
-#           which means to retrieve the value of that widget; this is useful for
-#           min/max pairs.
-# The "General" entry is a little special, since it doesn't pertain to a particular
-# mode combination. It is used as an addon to all other modes.
-_SDL_MODE_PARAMS = {  # noqa: E121,E501
-    ('General'):
-        {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
-                     '~AuxParametersLabel_.*', '~AuxParameters_.*',
-                     '~EnableTRise', '~EnableTFall',
-                     '~MeasureTRise', '~MeasureTFall',
-                     '~MeasureBatt.*', '~ClearAddCap'),
-         'mode_name': None,
-         'params': (
-            # For General only! The third param is True meaning to write it while
-            # copying _param_state to the instrument.
-            # SYST:REMOTE:STATE is undocumented! It locks the keyboard and
-            # sets the remote access icon
-            (':SYST:REMOTE:STATE',            'b', False),
-            (':INPUT:STATE',                  'b', False),
-            (':SHORT:STATE',                  'b', False),
-            (':FUNCTION',                     'r', False),
-            (':FUNCTION:TRANSIENT',           'r', False),
-            # FUNCtion:MODE is undocumented! Possible return values are:
-            #   BASIC, TRAN, BATTERY, OCP, OPP, LIST, PROGRAM
-            (':FUNCTION:MODE',                's', False),
-            (':BATTERY:MODE',                 's', True),
-            (':LIST:MODE',                    's', True),
-            (':TRIGGER:SOURCE',               's', True),
-            (':SENSE:AVERAGE:COUNT',          'd', 'GlobalParametersLabel_AvgCount', 'GlobalParameters_AvgCount', 6, 14),
-            (':SYSTEM:SENSE:STATE',           'b', None, 'ExternalVoltageSense'),
-            (':SYSTEM:IMONITOR:STATE',        'b', None, 'EnableIMonitor'),
-            (':SYSTEM:VMONITOR:STATE',        'b', None, 'EnableVMonitor'),
-            (':EXT:INPUT:STATE',              'b', None, 'ExternalInputState'),
-            (':EXT:MODE',                     's', True),
-            (':TIME:TEST:STATE',              'b', True),
-            (':VOLTAGE:LEVEL:ON',           '.3f', None, 'GlobalParameters_BreakoverV', 0, 150),
-            (':VOLTAGE:LATCH:STATE',          'b', None, 'BreakoverVoltageLatch'),
-            ((':CURRENT:PROTECTION:LEVEL',
-              ':CURRENT:PROTECTION:STATE'), '.3f', 'GlobalParametersLabel_CurrentProtL', 'GlobalParameters_CurrentProtL', 0, 30),
-            (':CURRENT:PROTECTION:DELAY',   '.3f', 'GlobalParametersLabel_CurrentProtD', 'GlobalParameters_CurrentProtD', 0, 60),
-            ((':POWER:PROTECTION:LEVEL',
-              ':POWER:PROTECTION:STATE'),   '.2f', 'GlobalParametersLabel_PowerProtL', 'GlobalParameters_PowerProtL', 0, 'P'),
-            (':POWER:PROTECTION:DELAY',     '.3f', 'GlobalParametersLabel_PowerProtD', 'GlobalParameters_PowerProtD', 0, 60),
-         )
-        },
-    ('Basic', 'Voltage'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
-         'mode_name': 'VOLTAGE',
-         'params': (
-            ('IRANGE',                    'r', None, 'Range_Current_.*'),
-            ('VRANGE',                    'r', None, 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE',         '.3f', 'MainParametersLabel_Voltage', 'MainParameters_Voltage', 0, 'V'),
-            (':TIME:TEST:VOLTAGE:LOW',  '.3f', 'MainParametersLabel_TimeVLow', 'MainParameters_TimeVLow', 0, 'W:MainParameters_TimeVHigh'),
-            (':TIME:TEST:VOLTAGE:HIGH', '.3f', 'MainParametersLabel_TimeVHigh', 'MainParameters_TimeVHigh', 'W:MainParameters_TimeVLow', 150),
-          )
-        },
-    ('Basic', 'Current'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
-         'mode_name': 'CURRENT',
-         'params': (
-            ('IRANGE',            'r', None, 'Range_Current_.*'),
-            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Current', 'MainParameters_Current', 0, 'C'),
-            (':TIME:TEST:VOLTAGE:LOW',  '.3f', 'MainParametersLabel_TimeVLow', 'MainParameters_TimeVLow', 0, 'W:MainParameters_TimeVHigh'),
-            (':TIME:TEST:VOLTAGE:HIGH', '.3f', 'MainParametersLabel_TimeVHigh', 'MainParameters_TimeVHigh', 'W:MainParameters_TimeVLow', 150),
-            ('SLEW:POSITIVE',   '.3f', 'AuxParametersLabel_BSlewPos', 'AuxParameters_BSlewPos', 'S', 'S'),
-            ('SLEW:NEGATIVE',   '.3f', 'AuxParametersLabel_BSlewNeg', 'AuxParameters_BSlewNeg', 'S', 'S'),
-          )
-        },
-    ('Basic', 'Power'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
-         'mode_name': 'POWER',
-         'params': (
-            ('IRANGE',            'r', None, 'Range_Current_.*'),
-            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Power', 'MainParameters_Power', 0, 'P'),
-            (':TIME:TEST:VOLTAGE:LOW',  '.3f', 'MainParametersLabel_TimeVLow', 'MainParameters_TimeVLow', 0, 'W:MainParameters_TimeVHigh'),
-            (':TIME:TEST:VOLTAGE:HIGH', '.3f', 'MainParametersLabel_TimeVHigh', 'MainParameters_TimeVHigh', 'W:MainParameters_TimeVLow', 150),
-          )
-        },
-    ('Basic', 'Resistance'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
-         'mode_name': 'RESISTANCE',
-         'params': (
-            ('IRANGE',            'r', None, 'Range_Current_.*'),
-            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL:IMMEDIATE', '.3f', 'MainParametersLabel_Resistance', 'MainParameters_Resistance', 0.030, 10000),
-            (':TIME:TEST:VOLTAGE:LOW',  '.3f', 'MainParametersLabel_TimeVLow', 'MainParameters_TimeVLow', 0, 'W:MainParameters_TimeVHigh'),
-            (':TIME:TEST:VOLTAGE:HIGH', '.3f', 'MainParametersLabel_TimeVHigh', 'MainParameters_TimeVHigh', 'W:MainParameters_TimeVLow', 150),
-          )
-        },
-    ('LED', None): # This behaves like a Basic mode
-        {'widgets': None,
-         'mode_name': 'LED',
-         'params': (
-            ('IRANGE',    'r', None, 'Range_Current_.*'),
-            ('VRANGE',    'r', None, 'Range_Voltage_.*'),
-            ('VOLTAGE', '.3f', 'MainParametersLabel_LEDV', 'MainParameters_LEDV', 0.010, 'V'),
-            ('CURRENT', '.3f', 'MainParametersLabel_LEDC', 'MainParameters_LEDC', 0, 'C'),
-            ('RCONF',   '.2f', 'MainParametersLabel_LEDR', 'MainParameters_LEDR', 0.01, 1),
-          )
-        },
-    ('Battery', 'Current'):
-        {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
-         'mode_name': 'BATTERY',
-         'params': (
-            ('IRANGE',            'r', None, 'Range_Current_.*'),
-            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',           '.3f', 'MainParametersLabel_BattC', 'MainParameters_BattC', 0, 'C'),
-            (('VOLTAGE',
-              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BattVStop', 'MainParameters_BattVStop', 0, 'V'),
-            (('CAP',
-              'CAP:STATE'),       'd', 'MainParametersLabel_BattCapStop', 'MainParameters_BattCapStop', 0, 999999),
-            (('TIMER',
-              'TIMER:STATE'),     'd', 'MainParametersLabel_BattTimeStop', 'MainParameters_BattTimeStop', 0, 86400),
-          )
-        },
-    ('Battery', 'Power'):
-        {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
-         'mode_name': 'BATTERY',
-         'params': (
-            ('IRANGE',            'r', None, 'Range_Current_.*'),
-            ('VRANGE',            'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',           '.3f', 'MainParametersLabel_BattP', 'MainParameters_BattP', 0, 'P'),
-            (('VOLTAGE',
-              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BattVStop', 'MainParameters_BattVStop', 0, 'V'),
-            (('CAP',
-              'CAP:STATE'),       'd', 'MainParametersLabel_BattCapStop', 'MainParameters_BattCapStop', 0, 999999),
-            (('TIMER',
-              'TIMER:STATE'),     'd', 'MainParametersLabel_BattTimeStop', 'MainParameters_BattTimeStop', 0, 86400),
-          )
-        },
-    ('Battery', 'Resistance'):
-        {'widgets': ('MeasureBatt.*', 'ClearAddCap'),
-         'mode_name': 'BATTERY',
-         'params': (
-            ('IRANGE',          'r', None, 'Range_Current_.*'),
-            ('VRANGE',          'r', None, 'Range_Voltage_.*'),
-            ('LEVEL',           '.3f', 'MainParametersLabel_BattR', 'MainParameters_BattR', 0.030, 10000),
-            (('VOLTAGE',
-              'VOLTAGE:STATE'), '.3f', 'MainParametersLabel_BattVStop', 'MainParameters_BattVStop', 0, 'V'),
-            (('CAP',
-              'CAP:STATE'),       'd', 'MainParametersLabel_BattCapStop', 'MainParameters_BattCapStop', 0, 999999),
-            (('TIMER',
-              'TIMER:STATE'),     'd', 'MainParametersLabel_BattTimeStop', 'MainParameters_BattTimeStop', 0, 86400),
-          )
-        },
-    ('Dynamic', 'Voltage', 'Continuous'):
-        {'widgets': None,
-         'mode_name': 'VOLTAGE',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 0, 'V'),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 0, 'V'),
-            ('TRANSIENT:AWIDTH', '.3f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 1, 999),
-            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 1, 999),
-          )
-        },
-    ('Dynamic', 'Voltage', 'Pulse'):
-        {'widgets': None,
-         'mode_name': 'VOLTAGE',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 0, 'V'),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 0, 'V'),
-            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_Width',   'MainParameters_Width', 1, 999),
-          )
-        },
-    ('Dynamic', 'Voltage', 'Toggle'):
-        {'widgets': None,
-         'mode_name': 'VOLTAGE',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelV', 'MainParameters_ALevelV', 0, 'V'),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelV', 'MainParameters_BLevelV', 0, 'V'),
-          )
-        },
-    ('Dynamic', 'Current', 'Continuous'):
-        {'widgets': None,
-         'mode_name': 'CURRENT',
-         'params': (
-            ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',          'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
-            ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
-            ('TRANSIENT:AWIDTH',        '.6f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.000020, 999),
-            ('TRANSIENT:BWIDTH',        '.6f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.000020, 999),
-            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 'S', 'S'),
-            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 'S', 'S'),
-          )
-        },
-    ('Dynamic', 'Current', 'Pulse'):
-        {'widgets': None,
-         'mode_name': 'CURRENT',
-         'params': (
-            ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',          'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
-            ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
-            ('TRANSIENT:BWIDTH',        '.6f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.000020, 999),
-            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 'S', 'S'),
-            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 'S', 'S'),
-          )
-        },
-    ('Dynamic', 'Current', 'Toggle'):
-        {'widgets': None,
-         'mode_name': 'CURRENT',
-         'params': (
-            ('TRANSIENT:IRANGE',          'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',          'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',            'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL',        '.3f', 'MainParametersLabel_ALevelC', 'MainParameters_ALevelC', 0, 'C'),
-            ('TRANSIENT:BLEVEL',        '.3f', 'MainParametersLabel_BLevelC', 'MainParameters_BLevelC', 0, 'C'),
-            ('TRANSIENT:SLEW:POSITIVE', '.3f', 'AuxParametersLabel_TSlewPos', 'AuxParameters_TSlewPos', 'S', 'S'),
-            ('TRANSIENT:SLEW:NEGATIVE', '.3f', 'AuxParametersLabel_TSlewNeg', 'AuxParameters_TSlewNeg', 'S', 'S'),
-          )
-        },
-    ('Dynamic', 'Power', 'Continuous'):
-        {'widgets': None,
-         'mode_name': 'POWER',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 0, 'P'),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
-            ('TRANSIENT:AWIDTH', '.6f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.000040, 999),
-            ('TRANSIENT:BWIDTH', '.6f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.000040, 999),
-          )
-        },
-    ('Dynamic', 'Power', 'Pulse'):
-        {'widgets': None,
-         'mode_name': 'POWER',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 0, 'P'),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
-            ('TRANSIENT:BWIDTH', '.6f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.000040, 999),
-          )
-        },
-    ('Dynamic', 'Power', 'Toggle'):
-        {'widgets': None,
-         'mode_name': 'POWER',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelP', 'MainParameters_ALevelP', 0, 'P'),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelP', 'MainParameters_BLevelP', 0, 'P'),
-          )
-        },
-    ('Dynamic', 'Resistance', 'Continuous'):
-        {'widgets': None,
-         'mode_name': 'RESISTANCE',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.030, 10000),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.030, 10000),
-            ('TRANSIENT:AWIDTH', '.3f', 'MainParametersLabel_AWidth',  'MainParameters_AWidth', 0.001, 999),
-            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_BWidth',  'MainParameters_BWidth', 0.001, 999),
-          )
-        },
-    ('Dynamic', 'Resistance', 'Pulse'):
-        {'widgets': None,
-         'mode_name': 'RESISTANCE',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.030, 10000),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.030, 10000),
-            ('TRANSIENT:BWIDTH', '.3f', 'MainParametersLabel_Width',   'MainParameters_Width', 0.001, 999),
-          )
-        },
-    ('Dynamic', 'Resistance', 'Toggle'):
-        {'widgets': None,
-         'mode_name': 'RESISTANCE',
-         'params': (
-            ('TRANSIENT:IRANGE',   'r', None, 'Range_Current_.*'),
-            ('TRANSIENT:VRANGE',   'r', None, 'Range_Voltage_.*'),
-            ('TRANSIENT:MODE',     'r', None, 'Dynamic_Mode_.*'),
-            ('TRANSIENT:ALEVEL', '.3f', 'MainParametersLabel_ALevelR', 'MainParameters_ALevelR', 0.030, 10000),
-            ('TRANSIENT:BLEVEL', '.3f', 'MainParametersLabel_BLevelR', 'MainParameters_BLevelR', 0.030, 10000),
-          )
-        },
-    ('OCPT', None):
-        {'widgets': None,
-         'mode_name': 'OCP',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('VOLTAGE',    '.3f', 'MainParametersLabel_OCPV', 'MainParameters_OCPV', 0, 'V'),
-            ('START',      '.3f', 'MainParametersLabel_OCPStart', 'MainParameters_OCPStart', 0, 'W:MainParameters_OCPEnd'),
-            ('END',        '.3f', 'MainParametersLabel_OCPEnd', 'MainParameters_OCPEnd', 'W:MainParameters_OCPStart', 'C'),
-            ('STEP',       '.3f', 'MainParametersLabel_OCPStep', 'MainParameters_OCPStep', 0, 'C'),
-            ('STEP:DELAY', '.3f', 'MainParametersLabel_OCPDelay', 'MainParameters_OCPDelay', 0.001, 999),
-            ('MIN',        '.3f', 'AuxParametersLabel_OCPMIN', 'AuxParameters_OCPMIN', 0, 'W:AuxParameters_OCPMAX'),
-            ('MAX',        '.3f', 'AuxParametersLabel_OCPMAX', 'AuxParameters_OCPMAX', 'W:AuxParameters_OCPMIN', 'C'),
-          )
-        },
-    ('OPPT', None):
-        {'widgets': None,
-         'mode_name': 'OPP',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('VOLTAGE',    '.3f', 'MainParametersLabel_OPPV', 'MainParameters_OPPV', 0, 'V'),
-            ('START',      '.2f', 'MainParametersLabel_OPPStart', 'MainParameters_OPPStart', 0, 'W:MainParameters_OPPEnd'),
-            ('END',        '.2f', 'MainParametersLabel_OPPEnd', 'MainParameters_OPPEnd', 'W:MainParameters_OPPStart', 'P'),
-            ('STEP',       '.2f', 'MainParametersLabel_OPPStep', 'MainParameters_OPPStep', 0, 'P'),
-            ('STEP:DELAY', '.3f', 'MainParametersLabel_OPPDelay', 'MainParameters_OPPDelay', 0.001, 999),
-            ('MIN',        '.3f', 'AuxParametersLabel_OPPMIN', 'AuxParameters_OPPMIN', 0, 'W:AuxParameters_OPPMAX'),
-            ('MAX',        '.3f', 'AuxParametersLabel_OPPMAX', 'AuxParameters_OPPMAX', 'W:AuxParameters_OPPMIN', 'P'),
-          )
-        },
-    ('Ext \u26A0', 'Voltage'):
-        {'widgets': None,
-         'mode_name': 'EXT',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-          )
-        },
-    ('Ext \u26A0', 'Current'):
-        {'widgets': None,
-         'mode_name': 'EXT',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-          )
-        },
-    ('List', 'Voltage'):
-        {'widgets': None,
-         'mode_name': 'LIST',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
-          )
-        },
-    ('List', 'Current'):
-        {'widgets': None,
-         'mode_name': 'LIST',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
-          )
-        },
-    ('List', 'Power'):
-        {'widgets': None,
-         'mode_name': 'LIST',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
-          )
-        },
-    ('List', 'Resistance'):
-        {'widgets': None,
-         'mode_name': 'LIST',
-         'params': (
-            ('IRANGE',       'r', None, 'Range_Current_.*'),
-            ('VRANGE',       'r', None, 'Range_Voltage_.*'),
-            ('STEP',         'd', 'MainParametersLabel_ListSteps', 'MainParameters_ListSteps', 1, 100),
-            ('COUNT',        'd', 'MainParametersLabel_ListCount', 'MainParameters_ListCount', 0, 255),
-          )
-        },
-    ('Program', None):
-        {'widgets': None,
-         'mode_name': 'LIST',
-         'params': (
-          )
-        },
-}
 
 
 class DoubleSpinBoxDelegate(QStyledItemDelegate):
@@ -689,7 +172,7 @@ class ListTableModel(QAbstractTableModel):
 
 # This class encapsulates the main SDL configuration widget.
 
-class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
+class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
     def __init__(self, *args, **kwargs):
         # The current state of all SCPI parameters. String values are always stored
         # in upper case!
@@ -716,23 +199,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._list_mode_cur_step_num = None
         self._list_mode_stopping = False
 
-        # Used to enable or disable measurement of parameters to speed up
-        # data acquisition.
-        self._enable_measurement_v = True
-        self._enable_measurement_c = True
-        self._enable_measurement_p = True
-        self._enable_measurement_r = True
-        self._enable_measurement_trise = False
-        self._enable_measurement_tfall = False
-
         # Needed to prevent recursive calls when setting a widget's value invokes
         # the callback handler for it.
         self._disable_callbacks = False
-
-        # The time the LOAD was turned on and off. Used for battery discharge logging.
-        self._load_on_time = None
-        self._load_off_time = None
-        self._reset_batt_log()
 
         # We need to call this later because some things called by __init__ rely
         # on the above variables being initialized.
@@ -750,6 +219,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     # This reads instrument -> _param_state
     def refresh(self):
         """Read all parameters from the instrument and set our internal state to match."""
+        return # XXX
         self._param_state = {} # Start with a blank slate
         for mode, info in _SDL_MODE_PARAMS.items():
             for param_spec in info['params']:
@@ -800,6 +270,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         This is tricker than it should be, because if you send a configuration
         command to the SDL for a mode it's not currently in, it crashes!"""
+        return # XXX
         set_params = set()
         first_list_mode_write = True
         for mode, info in _SDL_MODE_PARAMS.items():
@@ -835,6 +306,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     def update_measurements(self, read_inst=True):
         """Read current values, update control panel display, return the values."""
         # Update the load on/off state in case we hit a protection limit
+        return {} # XXX
         if read_inst:
             input_state = int(self._inst.query(':INPUT:STATE?'))
             if self._param_state[':INPUT:STATE'] != input_state:
@@ -1003,485 +475,105 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ### Add to Device menu
 
-        action = QAction('Show &battery report...', self)
-        action.triggered.connect(self._menu_do_device_batt_report)
-        self._menubar_device.addAction(action)
+        # action = QAction('Show &battery report...', self)
+        # action.triggered.connect(self._menu_do_device_batt_report)
+        # self._menubar_device.addAction(action)
 
         ### Add to View menu
 
-        action = QAction('&Parameters', self, checkable=True)
-        action.setChecked(True)
-        action.triggered.connect(self._menu_do_view_parameters)
-        self._menubar_view.addAction(action)
-        action = QAction('&Global Parameters', self, checkable=True)
-        action.setChecked(False)
-        action.triggered.connect(self._menu_do_view_global_parameters)
-        self._menubar_view.addAction(action)
-        action = QAction('&Load and Trigger', self, checkable=True)
-        action.setChecked(True)
-        action.triggered.connect(self._menu_do_view_load_trigger)
-        self._menubar_view.addAction(action)
-        action = QAction('&Measurements', self, checkable=True)
-        action.setChecked(True)
-        action.triggered.connect(self._menu_do_view_measurements)
-        self._menubar_view.addAction(action)
+        # action = QAction('&Parameters', self, checkable=True)
+        # action.setChecked(True)
+        # action.triggered.connect(self._menu_do_view_parameters)
+        # self._menubar_view.addAction(action)
+        # action = QAction('&Global Parameters', self, checkable=True)
+        # action.setChecked(False)
+        # action.triggered.connect(self._menu_do_view_global_parameters)
+        # self._menubar_view.addAction(action)
+        # action = QAction('&Load and Trigger', self, checkable=True)
+        # action.setChecked(True)
+        # action.triggered.connect(self._menu_do_view_load_trigger)
+        # self._menubar_view.addAction(action)
+        # action = QAction('&Measurements', self, checkable=True)
+        # action.setChecked(True)
+        # action.triggered.connect(self._menu_do_view_measurements)
+        # self._menubar_view.addAction(action)
 
         ### Set up configuration window widgets
 
         main_vert_layout = QVBoxLayout(toplevel_widget)
         main_vert_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
-        ###### ROW 1 - Modes and Paramter Values ######
+        main_horiz_layout = QHBoxLayout()
+        main_vert_layout.addLayout(main_horiz_layout)
+        frame = self._init_widgets_add_channel(1)
+        main_horiz_layout.addWidget(frame)
+        frame = self._init_widgets_add_channel(2)
+        main_horiz_layout.addWidget(frame)
 
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_registry['ParametersRow'] = w
+        self.show()
 
-        ### ROW 1, COLUMN 1 ###
 
-        # Overall mode: Basic, Dynamic, LED, Battery, List, Program, OCPT, OPPT
-        layouts = QVBoxLayout()
-        row_layout.addLayout(layouts)
-        frame = QGroupBox('Mode')
-        self._widget_registry['FrameMode'] = frame
-        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
-        layouts.addWidget(frame)
-        layouth = QHBoxLayout(frame)
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
-        layouth.addLayout(layoutv)
-        bg = QButtonGroup(layouts)
-        # Left column
-        for mode in ('Basic', 'LED', 'Battery', 'OCPT', 'OPPT', 'Ext \u26A0'):
-            rb = QRadioButton(mode)
-            layoutv.addWidget(rb)
-            bg.addButton(rb)
-            rb.button_group = bg
-            rb.wid = mode
-            rb.toggled.connect(self._on_click_overall_mode)
-            self._widget_registry['Overall_'+mode] = rb
-        layoutv.addStretch()
-        # Right column
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(2)
-        layouth.addLayout(layoutv)
-        for mode in ('Dynamic', 'List'): # , 'Program'):
-            rb = QRadioButton(mode)
-            layoutv.addWidget(rb)
-            bg.addButton(rb)
-            rb.button_group = bg
-            rb.wid = mode
-            rb.toggled.connect(self._on_click_overall_mode)
-            self._widget_registry['Overall_'+mode] = rb
-            if mode == 'Dynamic':
-                bg2 = QButtonGroup(layouts)
-                for mode in ('Continuous', 'Pulse', 'Toggle'):
-                    rb = QRadioButton(mode)
-                    rb.setStyleSheet('padding-left: 1.4em;') # Indent
-                    layoutv.addWidget(rb)
-                    bg2.addButton(rb)
-                    rb.button_group = bg
-                    rb.wid = mode
-                    rb.toggled.connect(self._on_click_dynamic_mode)
-                    self._widget_registry['Dynamic_Mode_'+mode] = rb
-        layoutv.addStretch()
+    def _init_widgets_add_channel(self, ch_num):
+        frame = QGroupBox(f'Channel {ch_num}')
 
-        ### ROW 1, COLUMN 2 ###
+        vert_layout = QVBoxLayout(frame)
 
-        # Mode radio buttons: CV, CC, CP, CR
-        frame = QGroupBox('Constant')
-        self._widget_registry['FrameConstant'] = frame
-        frame.setStyleSheet('QGroupBox { min-height: 10em; max-height: 10em; }')
-        row_layout.addWidget(frame)
-        layoutv = QVBoxLayout(frame)
-        bg = QButtonGroup(layouts)
-        for mode in ('Voltage', 'Current', 'Power', 'Resistance'):
-            rb = QRadioButton(mode)
-            bg.addButton(rb)
-            rb.button_group = bg
-            rb.wid = mode
-            rb.sizePolicy().setRetainSizeWhenHidden(True)
-            rb.toggled.connect(self._on_click_const_mode)
-            self._widget_registry['Const_'+mode] = rb
-            layoutv.addWidget(rb)
-
-        ### ROW 1, COLUMN 3 ###
-
-        # Main Parameters
-        frame = self._init_widgets_value_box(
-            'Main Parameters', (
-                ('Voltage',     'Voltage',      'V',      'LEVEL:IMMEDIATE'),
-                ('Current',     'Current',      'A',      'LEVEL:IMMEDIATE'),
-                ('Power',       'Power',        'W',      'LEVEL:IMMEDIATE'),
-                ('Resistance',  'Resistance',   '\u2126', 'LEVEL:IMMEDIATE'),
-                ('A Level',     'ALevelV',      'V',      'TRANSIENT:ALEVEL'),
-                ('B Level',     'BLevelV',      'V',      'TRANSIENT:BLEVEL'),
-                ('A Level',     'ALevelC',      'A',      'TRANSIENT:ALEVEL'),
-                ('B Level',     'BLevelC',      'A',      'TRANSIENT:BLEVEL'),
-                ('A Level',     'ALevelP',      'W',      'TRANSIENT:ALEVEL'),
-                ('B Level',     'BLevelP',      'W',      'TRANSIENT:BLEVEL'),
-                ('A Level',     'ALevelR',      '\u2126', 'TRANSIENT:ALEVEL'),
-                ('B Level',     'BLevelR',      '\u2126', 'TRANSIENT:BLEVEL'),
-                ('A Width',     'AWidth',       's',      'TRANSIENT:AWIDTH'),
-                ('B Width',     'BWidth',       's',      'TRANSIENT:BWIDTH'),
-                ('Width',       'Width',        's',      'TRANSIENT:BWIDTH'),
-                ('Vo',          'LEDV',         'V',      'VOLTAGE'),
-                ('Io',          'LEDC',         'A',      'CURRENT'),
-                ('Rco',         'LEDR',         None,     'RCONF'),
-                ('Time VLow',   'TimeVLow',     'V',      ':TIME:TEST:VOLTAGE:LOW'),
-                ('Time VHi',    'TimeVHigh',    'V',      ':TIME:TEST:VOLTAGE:HIGH'),
-                ('Current',     'BattC',        'A',      'LEVEL'),
-                ('Power',       'BattP',        'W',      'LEVEL'),
-                ('Resistance',  'BattR',        '\u2126', 'LEVEL'),
-                ('*V Stop',     'BattVStop',    'V',      ('VOLTAGE',
-                                                           'VOLTAGE:STATE')),
-                ('*Cap Stop',   'BattCapStop',  'mAh',    ('CAP',
-                                                           'CAP:STATE')),
-                ('*Time Stop',  'BattTimeStop', 's',      ('TIMER',
-                                                           'TIMER:STATE')),
-                ('Von',         'OCPV',         'V',      'VOLTAGE'),
-                ('I Start',     'OCPStart',     'A',      'START'),
-                ('I End',       'OCPEnd',       'A',      'END'),
-                ('I Step',      'OCPStep',      'A',      'STEP'),
-                ('Step Delay',  'OCPDelay',     's',      'STEP:DELAY'),
-                ('Prot V',      'OPPV',         'V',      'VOLTAGE'),
-                ('P Start',     'OPPStart',     'W',      'START'),
-                ('P End',       'OPPEnd',       'W',      'END'),
-                ('P Step',      'OPPStep',      'W',      'STEP'),
-                ('Step Delay',  'OPPDelay',     's',      'STEP:DELAY'),
-                ('# Steps',     'ListSteps',    None,     'STEP'),
-                ('@Run Count',  'ListCount',    None,     'COUNT')))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 10em; max-height: 10em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
-        row_layout.addWidget(frame)
-
-        ### ROW 1, COLUMN 4 ###
-
-        # V/I/R Range selections and Aux Parameters
-        layouts = QVBoxLayout()
-        layouts.setSpacing(0)
-        row_layout.addLayout(layouts)
-
-        # V/I/R Range selections
-        frame = QGroupBox('Range')
-        self._widget_registry['FrameRange'] = frame
-        layouts.addWidget(frame)
-        layout = QGridLayout(frame)
-        layout.setSpacing(0)
-        for row_num, (mode, ranges) in enumerate((('Voltage', ('36V', '150V')),
-                                                  ('Current', ('5A', '30A')))):
-            layout.addWidget(QLabel(mode+':'), row_num, 0)
-            bg = QButtonGroup(layout)
-            for col_num, range_name in enumerate(ranges):
-                rb = QRadioButton(range_name)
-                bg.addButton(rb)
-                rb.button_group = bg
-                rb.wid = range_name
-                rb.toggled.connect(self._on_click_range)
-                if len(ranges) == 1:
-                    layout.addWidget(rb, row_num, col_num+1, 1, 2)
-                else:
-                    layout.addWidget(rb, row_num, col_num+1)
-                self._widget_registry['Range_'+mode+'_'+range_name.strip('VA')] = rb
-
-        # Aux Parameters
-        frame = self._init_widgets_value_box(
-            'Aux Parameters', (
-                ('Slew (rise)', 'BSlewPos', 'A/\u00B5s', 'SLEW:POSITIVE'),
-                ('Slew (fall)', 'BSlewNeg', 'A/\u00B5s', 'SLEW:NEGATIVE'),
-                ('Slew (rise)', 'TSlewPos', 'A/\u00B5s', 'TRANSIENT:SLEW:POSITIVE'),
-                ('Slew (fall)', 'TSlewNeg', 'A/\u00B5s', 'TRANSIENT:SLEW:NEGATIVE'),
-                ('I Min',       'OCPMIN',   'A',         'MIN'),
-                ('I Max',       'OCPMAX',   'A',         'MAX'),
-                ('P Min',       'OPPMIN',   'W',         'MIN'),
-                ('P Max',       'OPPMAX',   'W',         'MAX')))
-        ss = """QGroupBox { min-width: 11em; max-width: 11em;
-                            min-height: 5em; max-height: 5em; }
-                QDoubleSpinBox { min-width: 5.5em; max-width: 5.5em; }
-             """
-        frame.setStyleSheet(ss)
-        layouts.addWidget(frame)
-
-        ###################
-
-        ###### ROW 2 - DEVICE PARAMETERS ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_registry['GlobalParametersRow'] = w
-        w.hide()
-
-        ### ROW 2, COLUMN 1 ###
-
-        frame = QGroupBox('Global Parameters')
-        row_layout.addWidget(frame)
-        layouth = QHBoxLayout(frame)
-
-        # Left column
-        layoutv = QVBoxLayout()
-        layouth.addLayout(layoutv)
-        w = QCheckBox('External Voltage Sense')
-        self._widget_registry['ExternalVoltageSense'] = w
-        w.clicked.connect(self._on_click_ext_voltage_sense)
-        layoutv.addWidget(w)
-        w = QCheckBox('External Current Monitor')
-        self._widget_registry['EnableIMonitor'] = w
-        w.clicked.connect(self._on_click_imonitor)
-        layoutv.addWidget(w)
-        w = QCheckBox('External Voltage Monitor')
-        self._widget_registry['EnableVMonitor'] = w
-        w.clicked.connect(self._on_click_vmonitor)
-        layoutv.addWidget(w)
-        w = QCheckBox('External Load On/Off \u26A0')
-        self._widget_registry['ExternalInputState'] = w
-        w.clicked.connect(self._on_click_ext_input_state)
-        layoutv.addWidget(w)
-        layoutv.addStretch()
-        layouth.addStretch()
-
-        # Middle column
-        layoutv = QVBoxLayout()
-        layouth.addLayout(layoutv)
-        _ = self._init_widgets_value_box(
-            'Global Parameters', (
-                ('*Current Protection Level', 'CurrentProtL', 'A', (':CURRENT:PROTECTION:LEVEL',
-                                                                    ':CURRENT:PROTECTION:STATE')),
-                ('Current Protection Delay',  'CurrentProtD', 's', ':CURRENT:PROTECTION:DELAY'),
-                ('*Power Protection Level',   'PowerProtL',   'W', (':POWER:PROTECTION:LEVEL',
-                                                                    ':POWER:PROTECTION:STATE')),
-                ('Power Protection Delay',    'PowerProtD',   's', ':POWER:PROTECTION:DELAY'),
-            ), layout=layoutv)
-        ss = """QDoubleSpinBox { min-width: 4.5em; max-width: 4.5em; }
-             """
-        frame.setStyleSheet(ss)
-        layoutv.addStretch()
-        layouth.addStretch()
-
-        # Right column
-        layoutv = QVBoxLayout()
-        layouth.addLayout(layoutv)
-        _ = self._init_widgets_value_box(
-            'Global Parameters', (
-                ('Average Count',             'AvgCount',     None, ':SENSE:AVERAGE:COUNT'),
-                ('Breakover Voltage',         'BreakoverV',    'V', ':VOLTAGE:LEVEL:ON'),
-            ), layout=layoutv)
-        w = QCheckBox('Breakover Voltage Latch')
-        self._widget_registry['BreakoverVoltageLatch'] = w
-        w.clicked.connect(self._on_click_breakover_voltage_latch)
-        layoutv.addWidget(w)
-        layoutv.addStretch()
-        layouth.addStretch()
-
-        ###################
-
-        ###### ROW 3 - LIST MODE ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_registry['ListRow'] = w
-
-        table = QTableView(alternatingRowColors=True)
-        table.setModel(ListTableModel(self._on_list_table_change))
-        row_layout.addWidget(table)
-        ss = """QTableView { min-width: 18em; max-width: 18em;
-                             min-height: 11em; max-height: 11em; }"""
-        table.setStyleSheet(ss)
-        table.verticalHeader().setMinimumWidth(30)
-        self._widget_registry['ListTable'] = table
-
-        pw = pg.plot()
-        # Disable zoom and pan
-        pw.plotItem.setMouseEnabled(x=False, y=False)
-        pw.plotItem.setMenuEnabled(False)
-        self._list_mode_level_plot = pw.plot([], pen=0)
-        self._list_mode_step_plot = pw.plot([], pen=1)
-        pw.setMaximumSize(365, 178) # XXX Warning magic constants!
-        row_layout.addWidget(pw)
-        self._widget_registry['ListPlot'] = pw
-
-        row_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
-
-        ###################
-
-        ###### ROW 4 - PROGRAM MODE ######
-
-        # w = QCheckBox('Stop on fail')
-        # self._widget_registry['StopOnFail'] = w
-        # w.clicked.connect(self._on_click_stop_on_fail)
-        # layoutv.addWidget(w)
-
-        ###### ROW 5 - SHORT/LOAD/TRIGGER ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_registry['TriggerRow'] = w
-
-        ###### ROW 5, COLUMN 1 - SHORT ######
-
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
-        row_layout.addLayout(layoutv)
-
-        w = QPushButton('') # SHORT ON/OFF
-        w.setEnabled(False) # Default to disabled since checkbox is unchecked
-        w.clicked.connect(self._on_click_short_on_off)
-        layoutv.addWidget(w)
-        self._widget_registry['ShortONOFF'] = w
-        layouth = QHBoxLayout()
-        layoutv.addLayout(layouth)
-        layouth.addStretch()
-        w = QCheckBox('Enable short operation') # Enable short
-        w.setChecked(False)
-        w.clicked.connect(self._on_click_short_enable)
-        layouth.addWidget(w)
-        self._widget_registry['ShortONOFFEnable'] = w
-        self._update_short_onoff_button(False) # Sets the style sheet
-        layouth.addStretch()
-
-        row_layout.addStretch()
-
-        ###### ROW 5, COLUMN 2 - LOAD ######
-
-        w = QPushButton('') # LOAD ON/OFF
-        w.clicked.connect(self._on_click_load_on_off)
-        row_layout.addWidget(w)
-        self._widget_registry['LoadONOFF'] = w
-        self._update_load_onoff_button(False) # Sets the style sheet
-
-        row_layout.addStretch()
-
-        ###### ROW 5, COLUMN 3 - TRIGGER ######
-
-        layoutv = QVBoxLayout()
-        layoutv.setSpacing(0)
-        row_layout.addLayout(layoutv)
-        bg = QButtonGroup(layoutv)
-        rb = QRadioButton('SDL Panel')
-        rb.mode = 'Manual'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Man'] = rb
-        rb = QRadioButton('TRIG\u25CE \u279c')
-        rb.setChecked(True)
-        rb.mode = 'Bus'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Bus'] = rb
-        rb = QRadioButton('External')
-        rb.mode = 'External'
-        bg.addButton(rb)
-        rb.button_group = bg
-        rb.clicked.connect(self._on_click_trigger_source)
-        layoutv.addWidget(rb)
-        self._widget_registry['Trigger_Ext'] = rb
-
-        w = QPushButton('TRIG\u25CE')
-        w.clicked.connect(self._on_click_trigger)
-        ss = """QPushButton {
-                    min-width: 2.9em; max-width: 2.9em;
-                    min-height: 1.5em; max-height: 1.5em;
-                    border-radius: 0.75em; border: 4px solid black;
-                    font-weight: bold; font-size: 18px;
-                    background: #ffff80; }
-                QPushButton:pressed { border: 6px solid black; }"""
-        w.setStyleSheet(ss)
-        row_layout.addWidget(w)
-        self._widget_registry['Trigger'] = w
-
-        ###################
-
-        ###### ROW 6 - MEASUREMENTS ######
-
-        w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
-        main_vert_layout.addWidget(w)
-        self._widget_registry['MeasurementsRow'] = w
-
-        # Enable measurements, reset battery log button
-        layoutv = QVBoxLayout()
-        # layoutv.setSpacing(0)
-        row_layout.addLayout(layoutv)
-        layoutv.addWidget(QLabel('Enable measurements:'))
         layoutg = QGridLayout()
-        layoutv.addLayout(layoutg)
+        vert_layout.addLayout(layoutg)
 
-        cb = QCheckBox('Voltage')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'V'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 0, 0)
-        self._widget_registry['EnableV'] = cb
+        for cv_num, (cv, cvu) in enumerate((('V', 'V'), ('I', 'A'))):
+            for mm_num, mm in enumerate(('Min', 'Max')):
+                layouth = QHBoxLayout()
+                layouth.addWidget(QLabel(f'{cv} {mm}:'))
+                spinner = QDoubleSpinBox()
+                spinner.setAlignment(Qt.AlignmentFlag.AlignRight)
+                spinner.setSuffix(f' {cvu}')
+                spinner.setDecimals(3)
+                if cv == 'V':
+                    spinner.setRange(0, 32)
+                else:
+                    spinner.setRange(0, 3.2)
+                layouth.addWidget(spinner)
+                layoutg.addLayout(layouth, mm_num, cv_num)
 
-        cb = QCheckBox('Current')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'C'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 0, 1)
-        self._widget_registry['EnableC'] = cb
+            ss = """font-size: 28px;"""
+            spinner = QDoubleSpinBox()
+            spinner.setStyleSheet(ss)
+            spinner.setAlignment(Qt.AlignmentFlag.AlignRight)
+            spinner.setSuffix(f' {cvu}')
+            spinner.setDecimals(3)
+            if cv == 'V':
+                spinner.setRange(0, 32)
+            else:
+                spinner.setRange(0, 3.2)
+            layoutg.addWidget(spinner, 2, cv_num)
 
-        cb = QCheckBox('Power')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'P'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 1, 0)
-        self._widget_registry['EnableP'] = cb
+            layoutg2 = QGridLayout()
+            layoutg.addLayout(layoutg2, 3, cv_num)
+            ss = """max-width: 4.5em; max-height: 4.5em; background-color:yellow; border: 1px;"""
+            ss2 = """max-width: 3.5em; max-height: 3.5em;"""
+            for cf_num, cf in enumerate(('Coarse', 'Fine')):
+                dial = QDial()
+                if cf == 'Coarse':
+                    dial.setStyleSheet(ss)
+                else:
+                    dial.setStyleSheet(ss2)
+                dial.setWrapping(True)
+                layoutg2.addWidget(dial, 0, cf_num, Qt.AlignmentFlag.AlignCenter)
+                layoutg2.addWidget(QLabel(f'{cf} {cv}'), 1, cf_num,
+                                   Qt.AlignmentFlag.AlignCenter)
 
-        cb = QCheckBox('Resistance')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(True)
-        cb.mode = 'R'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 1, 1)
-        self._widget_registry['EnableR'] = cb
 
-        cb = QCheckBox('TRise')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(False)
-        cb.mode = 'TR'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 2, 0)
-        self._widget_registry['EnableTRise'] = cb
 
-        cb = QCheckBox('TFall')
-        cb.setStyleSheet('padding-left: 0.5em;') # Indent
-        cb.setChecked(False)
-        cb.mode = 'TF'
-        cb.clicked.connect(self._on_click_enable_measurements)
-        layoutg.addWidget(cb, 2, 1)
-        self._widget_registry['EnableTFall'] = cb
 
-        layoutv.addStretch()
-        pb = QPushButton('Reset Addl Cap && Test Log')
-        pb.clicked.connect(self._on_click_reset_batt_test)
-        layoutv.addWidget(pb)
-        self._widget_registry['ClearAddCap'] = pb
-        layoutv.addStretch()
+        ###### ROW X - MEASUREMENTS ######
 
-        row_layout.addStretch()
+        w = QWidget()
+        row_layout = QHBoxLayout()
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        w.setLayout(row_layout)
+        vert_layout.addWidget(w)
+        self._widget_registry['MeasurementsRow'] = w
 
         # Main measurements widget
         container = QWidget()
@@ -1495,66 +587,24 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         ss2 = """font-size: 15px; font-weight: bold; font-family: "Courier New";
                  min-width: 6.5em; color: yellow;
              """
-        ss3 = """font-size: 30px; font-weight: bold; font-family: "Courier New";
-                 min-width: 6.5em; color: red;
-             """
-        ss4 = """font-size: 15px; font-weight: bold; font-family: "Courier New";
-                 min-width: 6.5em; color: red;
-             """
-        layout = QGridLayout(container)
+        mlayout = QVBoxLayout(container)
         w = QLabel('---   V')
         w.setAlignment(Qt.AlignmentFlag.AlignRight)
         w.setStyleSheet(ss)
-        layout.addWidget(w, 0, 0)
+        mlayout.addWidget(w)
         self._widget_registry['MeasureV'] = w
         w = QLabel('---   A')
         w.setAlignment(Qt.AlignmentFlag.AlignRight)
         w.setStyleSheet(ss)
-        layout.addWidget(w, 0, 1)
+        mlayout.addWidget(w)
         self._widget_registry['MeasureC'] = w
         w = QLabel('---   W')
         w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss)
-        layout.addWidget(w, 1, 0)
+        w.setStyleSheet(ss2)
+        mlayout.addWidget(w)
         self._widget_registry['MeasureP'] = w
-        w = QLabel('---   \u2126')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss)
-        layout.addWidget(w, 1, 1)
-        self._widget_registry['MeasureR'] = w
 
-        w = QLabel('TRise:   ---   s')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss2)
-        layout.addWidget(w, 2, 0)
-        self._widget_registry['MeasureTRise'] = w
-        w = QLabel('TFall:   ---   s')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss2)
-        layout.addWidget(w, 2, 1)
-        self._widget_registry['MeasureTFall'] = w
-
-        w = QLabel('00:00:00')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss3)
-        layout.addWidget(w, 3, 0)
-        self._widget_registry['MeasureBattTime'] = w
-        w = QLabel('---  mAh')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss3)
-        layout.addWidget(w, 3, 1)
-        self._widget_registry['MeasureBattCap'] = w
-        w = QLabel('Addl Cap:    --- mAh')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss4)
-        layout.addWidget(w, 4, 0)
-        self._widget_registry['MeasureBattAddCap'] = w
-        w = QLabel('Total Cap:    --- mAh')
-        w.setAlignment(Qt.AlignmentFlag.AlignRight)
-        w.setStyleSheet(ss4)
-        layout.addWidget(w, 4, 1)
-        self._widget_registry['MeasureBattTotalCap'] = w
-        row_layout.addStretch()
+        return frame
 
     # Our general philosophy is to create all of the possible input widgets for all
     # parameters and all units, and then hide the ones we don't need.
@@ -2937,15 +1987,15 @@ List status tracking is an approximation."""
 ##########################################################################################
 
 
-class InstrumentSiglentSDL1000(Device4882):
+class InstrumentSiglentSPD3303(Device4882):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._long_name = f'SDL1000 @ {self._resource_name}'
+        self._long_name = f'SPD3303 @ {self._resource_name}'
         if self._resource_name.startswith('TCPIP'):
             ips = self._resource_name.split('.') # This only works with TCP!
-            self._name = f'SDL{ips[-1]}'
+            self._name = f'SPD{ips[-1]}'
         else:
-            self._name = 'SDL'
+            self._name = 'SPD'
 
     def connect(self, *args, **kwargs):
         super().connect(*args, **kwargs)
@@ -2955,13 +2005,13 @@ class InstrumentSiglentSDL1000(Device4882):
         (self._manufacturer,
          self._model,
          self._serial_number,
-         self._firmware_version) = idn
+         self._firmware_version,
+         self._hardware_version) = idn
         if self._manufacturer != 'Siglent Technologies':
             assert ValueError
-        if not self._model.startswith('SDL'):
+        if not self._model.startswith('SPD'):
             assert ValueError
         self._long_name = f'{self._model} @ {self._resource_name}'
-        self._max_power = 300 if self._model in ('SDL1030X-E', 'SDL1030X') else 200
         self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
 
     def disconnect(self, *args, **kwargs):
@@ -2969,7 +2019,7 @@ class InstrumentSiglentSDL1000(Device4882):
         super().disconnect(*args, **kwargs)
 
     def configure_widget(self, main_window):
-        return InstrumentSiglentSDL1000ConfigureWidget(main_window, self)
+        return InstrumentSiglentSPD3303ConfigureWidget(main_window, self)
 
     def set_input_state(self, val):
         self._validator_1(val)
@@ -3007,47 +2057,3 @@ class InstrumentSiglentSDL1000(Device4882):
                 self.measure_current(),
                 self.measure_power(),
                 self.measure_resistance())
-
-
-"""
-[:SOURce]:PROGram:STEP {< number > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:STEP?
-[:SOURce]:PROGram:MODE <step>, {CURRent | VOLTage | POWer | RESistance | LED}
-[:SOURce]:PROGram:MODE? <step>
-[:SOURce]:PROGram:IRANGe <step,value>
-[:SOURce]:PROGram: VRANGe <step, value>,
-[:SOURce]:PROGram: V RANGe? <step>
-[:SOURce]:PROGram:RRANGe <step>, {LOW | MIDDLE | HIGH}
-[:SOURce]:PROGram:RRANGe? <step>
-[:SOURce]:PROGram:SHORt <step>, {ON | OFF | 0 | 1}
-[:SOURce]:PROGram:SHORt? <step>
-[:SOURce]:PROGram:PAUSE <step>, {ON | OFF | 0 | 1 }
-[:SOURce]:PROGram:PAUSE? <step>,
-[:SOURce]:PROGram:TIME:ON <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:TIME:ON? <step>
-[:SOURce]:PROGram:TIME:OFF <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:TIME:OFF? <step>
-[:SOURce]:PROGram:TIME:DELay <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:TIME:DELay? <step>
-[:SOURce]:PROGram:MIN <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:MIN? <step>
-[:SOURce]:PROGram:MAX <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:MAX? <step>
-[:SOURce]:PROGram:LEVel <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:LEVel? <step>
-[:SOURce]:PROGram:LED:CURRent <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:LED:CURRent? <step>
-[:SOURce]:PROGram:LED:RCOnf <step>, {< value > | MINimum | MAXimum | DEFault}
-[:SOURce]:PROGram:LED:RCOnf? <step>
-[:SOURce]:PROGram:STATe:ON
-[:SOURce]:PROGram:STATe?
-[:SOURce]:PROGram:TEST? <step>
-
-STOP:ON:FAIL[:STATe] {ON | OFF | 0 | 1}
-STOP:ON:FAIL[:STATe]?
-
-TIME:TEST:VOLTage:LOW {< value > | MINimum | MAXimum | DEFault}
-TIME:TEST:VOLTage:LOW?
-TIME:TEST:VOLTage:HIGH {< value | MINimum | MAXimum | DEFault}
-TIME:TEST:VOLTage:HIGH?
-"""

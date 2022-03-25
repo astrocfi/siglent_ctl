@@ -23,6 +23,7 @@
 
 from .device import Device4882
 from .siglent_sdl1000 import InstrumentSiglentSDL1000
+from .siglent_spd3303 import InstrumentSiglentSPD3303
 
 
 class UnknownInstrumentType(Exception):
@@ -34,6 +35,8 @@ _DEVICE_MAPPING = {
     ('Siglent Technologies', 'SDL1020X-E'): InstrumentSiglentSDL1000,
     ('Siglent Technologies', 'SDL1030X'):   InstrumentSiglentSDL1000,
     ('Siglent Technologies', 'SDL1030X-E'): InstrumentSiglentSDL1000,
+    ('Siglent Technologies', 'SPD3303X'):   InstrumentSiglentSPD3303,
+    ('Siglent Technologies', 'SPD3303X-E'): InstrumentSiglentSPD3303,
 }
 
 
