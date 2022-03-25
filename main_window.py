@@ -22,6 +22,7 @@
 ################################################################################
 
 import math
+import platform
 import sys
 import time
 
@@ -99,6 +100,14 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle('Siglent Instrument Controller')
 
+        match platform.system():
+            case 'Linux':
+                self._style_env = 'linux'
+            case 'Windows':
+                self._style_env = 'windows'
+            case 'Darwin':
+                self._style_env = 'windows'
+
         self.app = app
         self.resource_manager = pyvisa.ResourceManager('@py')
 
@@ -172,7 +181,7 @@ class MainWindow(QWidget):
         layoutv.addLayout(layouth)
 
         frame = QGroupBox('Measurement')
-        frame.setStyleSheet("""QGroupBox { min-width: 11em; max-width: 11em; }""")
+        frame.setStyleSheet("""QGroupBox { min-width: 14em; max-width: 14em; }""")
         layoutv2 = QVBoxLayout(frame)
         layouth.addWidget(frame)
 
