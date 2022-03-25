@@ -178,9 +178,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # in upper case!
         self._param_state = {}
 
-        self._cur_overall_mode = None # e.g. Basic, Dynamic, LED
-        self._cur_const_mode = None   # e.g. Voltage, Current, Power, Resistance
-        self._cur_dynamic_mode = None # e.g. Continuous, Pulse, Toggle
+        self._widgets_minmax_limits = []
+        self._widgets_adjustment_knobs = []
+        self._widgets_preset_buttons = []
+        self._widgets_measurements = []
 
         # List mode parameters
         self._list_mode_levels = None
@@ -198,6 +199,12 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         self._list_mode_cur_step_start_time = None
         self._list_mode_cur_step_num = None
         self._list_mode_stopping = False
+
+        # Used to enable or disable measurement of parameters to speed up
+        # data acquisition.
+        self._enable_measurement_v = True
+        self._enable_measurement_c = True
+        self._enable_measurement_p = True
 
         # Needed to prevent recursive calls when setting a widget's value invokes
         # the callback handler for it.
@@ -305,164 +312,50 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 
     def update_measurements(self, read_inst=True):
         """Read current values, update control panel display, return the values."""
-        # Update the load on/off state in case we hit a protection limit
-        return {} # XXX
-        if read_inst:
-            input_state = int(self._inst.query(':INPUT:STATE?'))
-            if self._param_state[':INPUT:STATE'] != input_state:
-                # No need to update the instrument, since it changed the state for us
-                self._update_load_state(input_state, update_inst=False)
+        # if read_inst:
+        #     input_state = int(self._inst.query(':INPUT:STATE?'))
+        #     if self._param_state[':INPUT:STATE'] != input_state:
+        #         # No need to update the instrument, since it changed the state for us
+        #         self._update_load_state(input_state, update_inst=False)
 
         measurements = {}
 
-        voltage = None
-        if read_inst:
-            w = self._widget_registry['MeasureV']
-            if self._enable_measurement_v:
-                # Voltage is available regardless of the input state
-                voltage = self._inst.measure_voltage()
-                w.setText(f'{voltage:10.6f} V')
-            else:
-                w.setText('---   V')
-        measurements['Voltage'] = {'name':  'Voltage',
-                                   'unit':  'V',
-                                   'val':   voltage}
-
-        current = None
-        if read_inst:
-            w = self._widget_registry['MeasureC']
-            if self._enable_measurement_c:
-                # Current is only available when the load is on
-                if not input_state:
-                    w.setText('N/A   A')
+        for ch in (1,2):
+            voltage = None
+            if read_inst:
+                w = self._widget_registry[f'MeasureV{ch}']
+                if self._enable_measurement_v:
+                    voltage = self._inst.measure_voltage(ch)
+                    w.setText(f'{voltage:6.3f} V')
                 else:
-                    current = self._inst.measure_current()
-                    w.setText(f'{current:10.6f} A')
-            else:
-                w.setText('---   A')
-        measurements['Current'] = {'name':  'Current',
-                                   'unit':  'A',
-                                   'val':   current}
+                    w.setText('---   V')
+            measurements[f'CH{ch} Voltage'] = {'name':  'Voltage',
+                                               'unit':  'V',
+                                               'val':   voltage}
 
-        power = None
-        if read_inst:
-            w = self._widget_registry['MeasureP']
-            if self._enable_measurement_p:
-                # Power is only available when the load is on
-                if not input_state:
-                    w.setText('N/A   W')
+            current = None
+            if read_inst:
+                w = self._widget_registry[f'MeasureC{ch}']
+                if self._enable_measurement_c:
+                    current = self._inst.measure_current(ch)
+                    w.setText(f'{current:5.3f} A')
                 else:
-                    power = self._inst.measure_power()
-                    w.setText(f'{power:10.6f} W')
-            else:
-                w.setText('---   W')
-        measurements['Power'] = {'name':  'Power',
-                                 'unit':  'W',
-                                 'val':   power}
+                    w.setText('---   A')
+            measurements[f'CH{ch} Current'] = {'name':  'Current',
+                                               'unit':  'A',
+                                               'val':   current}
 
-        resistance = None
-        if read_inst:
-            w = self._widget_registry['MeasureR']
-            if self._enable_measurement_r:
-                # Resistance is only available when the load is on
-                if not input_state:
-                    w.setText('N/A   \u2126')
+            power = None
+            if read_inst:
+                w = self._widget_registry[f'MeasureP{ch}']
+                if self._enable_measurement_p:
+                    power = self._inst.measure_power(ch)
+                    w.setText(f'{power:6.3f} W')
                 else:
-                    resistance = self._inst.measure_resistance()
-                    if resistance < 10:
-                        fmt = '%8.6f'
-                    elif resistance < 100:
-                        fmt = '%8.5f'
-                    elif resistance < 1000:
-                        fmt = '%8.4f'
-                    elif resistance < 10000:
-                        fmt = '%8.3f'
-                    elif resistance < 100000:
-                        fmt = '%8.2f'
-                    else:
-                        fmt = '%8.1f'
-                    w.setText(f'{fmt} \u2126' % resistance)
-            else:
-                w.setText('---   \u2126')
-        measurements['Resistance'] = {'name':  'Resistance',
-                                      'unit':  '\u2126',
-                                      'val':   resistance}
-
-        trise = None
-        if read_inst:
-            w = self._widget_registry['MeasureTRise']
-            if self._enable_measurement_trise:
-                # Trise is only available when the load is on
-                if not input_state:
-                    w.setText('TRise:   N/A   s')
-                else:
-                    trise = self._inst.measure_trise()
-                    w.setText(f'TRise: {trise:7.3f} s')
-            else:
-                w.setText('TRise:   ---   s')
-        measurements['TRise'] = {'name':  'TRise',
-                                 'unit':  's',
-                                 'val':   trise}
-
-        tfall = None
-        if read_inst:
-            w = self._widget_registry['MeasureTFall']
-            if self._enable_measurement_tfall:
-                # Tfall is only available when the load is on
-                if not input_state:
-                    w.setText('TFall:   N/A   s')
-                else:
-                    tfall = self._inst.measure_tfall()
-                    w.setText(f'TFall: {tfall:7.3f} s')
-            else:
-                w.setText('TFall:   ---   s')
-        measurements['TFall'] = {'name':  'TFall',
-                                 'unit':  's',
-                                 'val':   tfall}
-
-        disch_time = None
-        disch_cap = None
-        add_cap = None
-        total_cap = None
-        if read_inst:
-            if self._cur_overall_mode == 'Battery':
-                # Battery measurements are available regardless of load state
-                if self._batt_log_initial_voltage is None:
-                    self._batt_log_initial_voltage = voltage
-                disch_time = self._inst.measure_battery_time()
-                m, s = divmod(disch_time, 60)
-                h, m = divmod(m, 60)
-                w = self._widget_registry['MeasureBattTime']
-                w.setText(f'{int(h):02d}:{int(m):02d}:{int(s):02}')
-
-                w = self._widget_registry['MeasureBattCap']
-                disch_cap = self._inst.measure_battery_capacity()
-                w.setText(f'{disch_cap:7.3f} Ah')
-
-                w = self._widget_registry['MeasureBattAddCap']
-                add_cap = self._inst.measure_battery_add_capacity()
-                w.setText(f'Addl Cap: {add_cap:7.3f} Ah')
-
-                # When the LOAD is OFF, we have already updated the ADDCAP to include the
-                # current test results, so we don't want to add it in a second time
-                if input_state:
-                    total_cap = disch_cap+add_cap
-                else:
-                    total_cap = add_cap
-                w = self._widget_registry['MeasureBattTotalCap']
-                w.setText(f'Total Cap: {total_cap:7.3f} Ah')
-        measurements['Discharge Time'] = {'name':  'Batt Dischg Time',
-                                          'unit':  's',
-                                          'val':   disch_time}
-        measurements['Capacity'] =       {'name':  'Batt Capacity', # noqa: E222
-                                          'unit':  'Ah',
-                                          'val':   disch_cap}
-        measurements['Addl Capacity'] =  {'name':  'Batt Addl Cap', # noqa: E222
-                                          'unit':  'Ah',
-                                          'val':   add_cap}
-        measurements['Total Capacity'] = {'name':  'Batt Total Cap',
-                                          'unit':  'Ah',
-                                          'val':   total_cap}
+                    w.setText('---   W')
+            measurements[f'CH{ch} Power'] = {'name':  'Power',
+                                             'unit':  'W',
+                                             'val':   power}
 
         return measurements
 
@@ -471,32 +364,29 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
     ############################################################################
 
     def _init_widgets(self):
+        """Set up all the toplevel widgets."""
         toplevel_widget = self._toplevel_widget()
 
         ### Add to Device menu
 
-        # action = QAction('Show &battery report...', self)
-        # action.triggered.connect(self._menu_do_device_batt_report)
-        # self._menubar_device.addAction(action)
-
         ### Add to View menu
 
-        # action = QAction('&Parameters', self, checkable=True)
-        # action.setChecked(True)
-        # action.triggered.connect(self._menu_do_view_parameters)
-        # self._menubar_view.addAction(action)
-        # action = QAction('&Global Parameters', self, checkable=True)
-        # action.setChecked(False)
-        # action.triggered.connect(self._menu_do_view_global_parameters)
-        # self._menubar_view.addAction(action)
-        # action = QAction('&Load and Trigger', self, checkable=True)
-        # action.setChecked(True)
-        # action.triggered.connect(self._menu_do_view_load_trigger)
-        # self._menubar_view.addAction(action)
-        # action = QAction('&Measurements', self, checkable=True)
-        # action.setChecked(True)
-        # action.triggered.connect(self._menu_do_view_measurements)
-        # self._menubar_view.addAction(action)
+        action = QAction('&Min/Max Limits', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_minmax_limits)
+        self._menubar_view.addAction(action)
+        action = QAction('&Adjustment Knobs', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_adjustment_knobs)
+        self._menubar_view.addAction(action)
+        action = QAction('&Presets', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_presets)
+        self._menubar_view.addAction(action)
+        action = QAction('&Measurements', self, checkable=True)
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_view_measurements)
+        self._menubar_view.addAction(action)
 
         ### Set up configuration window widgets
 
@@ -513,18 +403,28 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         self.show()
 
 
-    def _init_widgets_add_channel(self, ch_num):
-        frame = QGroupBox(f'Channel {ch_num}')
+    def _init_widgets_add_channel(self, ch):
+        frame = QGroupBox(f'Channel {ch}')
 
         vert_layout = QVBoxLayout(frame)
+        vert_layout.setContentsMargins(0, 0, 0, 0)
 
         layoutg = QGridLayout()
+        layoutg.setSpacing(0)
         vert_layout.addLayout(layoutg)
 
         for cv_num, (cv, cvu) in enumerate((('V', 'V'), ('I', 'A'))):
+            # Min/max limits
+            w = QWidget()
+            layouth = QHBoxLayout(w)
+            layouth.addStretch()
+            layoutg.addWidget(w, 0, cv_num)
+            layoutg2 = QGridLayout()
+            layouth.addLayout(layoutg2)
+            self._widgets_minmax_limits.append(w)
             for mm_num, mm in enumerate(('Min', 'Max')):
-                layouth = QHBoxLayout()
-                layouth.addWidget(QLabel(f'{cv} {mm}:'))
+                layoutg2.addWidget(QLabel(f'{cv} {mm}:'), mm_num, 0,
+                                          Qt.AlignmentFlag.AlignLeft)
                 spinner = QDoubleSpinBox()
                 spinner.setAlignment(Qt.AlignmentFlag.AlignRight)
                 spinner.setSuffix(f' {cvu}')
@@ -533,10 +433,11 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                     spinner.setRange(0, 32)
                 else:
                     spinner.setRange(0, 3.2)
-                layouth.addWidget(spinner)
-                layoutg.addLayout(layouth, mm_num, cv_num)
+                layoutg2.addWidget(spinner, mm_num, 1, Qt.AlignmentFlag.AlignLeft)
+            layouth.addStretch()
 
-            ss = """font-size: 28px;"""
+            # Main V/C inputs
+            ss = """font-size: 30px;"""
             spinner = QDoubleSpinBox()
             spinner.setStyleSheet(ss)
             spinner.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -546,12 +447,21 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 spinner.setRange(0, 32)
             else:
                 spinner.setRange(0, 3.2)
-            layoutg.addWidget(spinner, 2, cv_num)
+            layouth = QHBoxLayout()
+            layoutg.addLayout(layouth, 2, cv_num)
+            layouth.addStretch()
+            layouth.addWidget(spinner)
+            layouth.addStretch()
 
-            layoutg2 = QGridLayout()
-            layoutg.addLayout(layoutg2, 3, cv_num)
-            ss = """max-width: 4.5em; max-height: 4.5em; background-color:yellow; border: 1px;"""
-            ss2 = """max-width: 3.5em; max-height: 3.5em;"""
+            # Adjustment knobs
+            w = QWidget()
+            self._widgets_adjustment_knobs.append(w)
+            layoutg2 = QGridLayout(w)
+            layoutg2.setSpacing(0)
+            layoutg2.setContentsMargins(0,0,0,0)
+            layoutg.addWidget(w, 3, cv_num)
+            ss = """max-width: 5.5em; max-height: 5.5em; background-color:yellow; border: 1px;"""
+            ss2 = """max-width: 4.5em; max-height: 4.5em;"""
             for cf_num, cf in enumerate(('Coarse', 'Fine')):
                 dial = QDial()
                 if cf == 'Coarse':
@@ -563,46 +473,55 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 layoutg2.addWidget(QLabel(f'{cf} {cv}'), 1, cf_num,
                                    Qt.AlignmentFlag.AlignCenter)
 
-
+        # Preset buttons
+        w = QWidget()
+        vert_layout.addWidget(w)
+        self._widgets_preset_buttons.append(w)
+        layoutg = QGridLayout(w)
+        for preset_num in range(6):
+            row, column = divmod(preset_num, 2)
+            # button = QPushButton(f'Preset {preset_num+1}')
+            button = QPushButton(f'32.000V / 3.200A')
+            layoutg.addWidget(button, row, column)
 
 
         ###### ROW X - MEASUREMENTS ######
 
         w = QWidget()
-        row_layout = QHBoxLayout()
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(row_layout)
+        w.setStyleSheet('background: black;')
+        layoutv = QVBoxLayout(w)
         vert_layout.addWidget(w)
-        self._widget_registry['MeasurementsRow'] = w
-
-        # Main measurements widget
-        container = QWidget()
-        container.setStyleSheet('background: black;')
-        row_layout.addStretch()
-        row_layout.addWidget(container)
+        self._widgets_measurements.append(w)
 
         ss = """font-size: 30px; font-weight: bold; font-family: "Courier New";
-                min-width: 6.5em; color: yellow;
+                min-width: 4.5em; color: yellow;
              """
         ss2 = """font-size: 15px; font-weight: bold; font-family: "Courier New";
-                 min-width: 6.5em; color: yellow;
+                 min-width: 2.5em; color: yellow;
              """
-        mlayout = QVBoxLayout(container)
-        w = QLabel('---   V')
+        layouth = QHBoxLayout()
+        layoutv.addLayout(layouth)
+        layouth.addStretch()
+        w = QLabel(' ---  V')
         w.setAlignment(Qt.AlignmentFlag.AlignRight)
         w.setStyleSheet(ss)
-        mlayout.addWidget(w)
-        self._widget_registry['MeasureV'] = w
-        w = QLabel('---   A')
+        layouth.addWidget(w)
+        self._widget_registry[f'MeasureV{ch}'] = w
+        w = QLabel(' ---  A')
         w.setAlignment(Qt.AlignmentFlag.AlignRight)
         w.setStyleSheet(ss)
-        mlayout.addWidget(w)
-        self._widget_registry['MeasureC'] = w
-        w = QLabel('---   W')
+        layouth.addWidget(w)
+        self._widget_registry[f'MeasureC{ch}'] = w
+        layouth.addStretch()
+        layouth = QHBoxLayout()
+        layoutv.addLayout(layouth)
+        layouth.addStretch()
+        w = QLabel(' ---  W')
         w.setAlignment(Qt.AlignmentFlag.AlignRight)
         w.setStyleSheet(ss2)
-        mlayout.addWidget(w)
-        self._widget_registry['MeasureP'] = w
+        layouth.addWidget(w)
+        self._widget_registry[f'MeasureP{ch}'] = w
+        layouth.addStretch()
 
         return frame
 
@@ -741,223 +660,37 @@ Copyright 2022, Robert S. French"""
         self.refresh()
         self.setEnabled(True)
 
-    def _menu_do_device_batt_report(self):
-        """Produce the battery discharge report, if any, and display it in a dialog."""
-        report = self._batt_log_report()
-        if report is None:
-            report = 'No current battery log.'
-        self._printable_text_dialog('Battery Discharge Report', report)
+    def _menu_do_view_minmax_limits(self, state):
+        """Toggle visibility of the min/max limit spinboxes."""
+        for w in self._widgets_minmax_limits:
+            if state:
+                w.show()
+            else:
+                w.hide()
 
-    def _menu_do_view_parameters(self, state):
-        """Toggle visibility of the parameters row."""
-        if state:
-            self._widget_registry['ParametersRow'].show()
-            if self._cur_overall_mode == 'List':
-                self._widget_registry['ListRow'].show()
-        else:
-            self._widget_registry['ParametersRow'].hide()
-            self._widget_registry['ListRow'].hide()
+    def _menu_do_view_adjustment_knobs(self, state):
+        """Toggle visibility of the adjustment knobs."""
+        for w in self._widgets_adjustment_knobs:
+            if state:
+                w.show()
+            else:
+                w.hide()
 
-    def _menu_do_view_global_parameters(self, state):
-        """Toggle visibility of the global parameters row."""
-        if state:
-            self._widget_registry['GlobalParametersRow'].show()
-        else:
-            self._widget_registry['GlobalParametersRow'].hide()
-
-    def _menu_do_view_load_trigger(self, state):
-        """Toggle visibility of the short/load/trigger row."""
-        if state:
-            self._widget_registry['TriggerRow'].show()
-        else:
-            self._widget_registry['TriggerRow'].hide()
+    def _menu_do_view_presets(self, state):
+        """Toggle visibility of the preset buttons."""
+        for w in self._widgets_preset_buttons:
+            if state:
+                w.show()
+            else:
+                w.hide()
 
     def _menu_do_view_measurements(self, state):
         """Toggle visibility of the measurements row."""
-        if state:
-            self._widget_registry['MeasurementsRow'].show()
-        else:
-            self._widget_registry['MeasurementsRow'].hide()
-
-    def _on_click_overall_mode(self):
-        """Handle clicking on an Overall Mode button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        self._cur_overall_mode = rb.wid
-        self._cur_dynamic_mode = None
-        new_param_state = {}
-        new_param_state[':EXT:MODE'] = 'INT'  # Overridden by 'Ext' below
-        # Special handling for each button
-        match self._cur_overall_mode:
-            case 'Basic':
-                self._cur_const_mode = self._param_state[':FUNCTION'].title()
-                if self._cur_const_mode in ('Led', 'OCP', 'OPP'):
-                    # LED is weird in that the instrument treats it as a BASIC mode
-                    # but there's no CV/CC/CP/CR choice.
-                    # We lose information going from OCP/OPP back to Basic because
-                    # we don't know which basic mode we were in before!
-                    self._cur_const_mode = 'Voltage' # For lack of anything else to do
-                # Force update since this does more than set a parameter - it switches
-                # modes
-                self._param_state[':FUNCTION'] = None
-                new_param_state[':FUNCTION'] = self._cur_const_mode.upper()
-                self._param_state[':FUNCTION:MODE'] = 'BASIC'
-            case 'Dynamic':
-                self._cur_const_mode = (
-                    self._param_state[':FUNCTION:TRANSIENT'].title())
-                # Dynamic also has sub-modes - Continuous, Pulse, Toggle
-                param_info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
-                mode_name = param_info['mode_name']
-                self._cur_dynamic_mode = (
-                    self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
-                # Force update since this does more than set a parameter - it switches
-                # modes
-                self._param_state[':FUNCTION:TRANSIENT'] = None
-                new_param_state[':FUNCTION:TRANSIENT'] = self._cur_const_mode.upper()
-                self._param_state[':FUNCTION:MODE'] = 'TRAN'
-            case 'LED':
-                # Force update since this does more than set a parameter - it switches
-                # modes
-                self._param_state[':FUNCTION'] = None
-                new_param_state[':FUNCTION'] = 'LED' # LED is consider a BASIC mode
-                self._param_state[':FUNCTION:MODE'] = 'BASIC'
-                self._cur_const_mode = None
-            case 'Battery':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in the Battery mode, but it
-                # doesn't allow us to SWITCH TO the Battery mode!
-                self._inst.write(':BATTERY:FUNC')
-                self._param_state[':FUNCTION:MODE'] = 'BATTERY'
-                self._cur_const_mode = self._param_state[':BATTERY:MODE'].title()
-            case 'OCPT':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in OCP mode, but it
-                # doesn't allow us to SWITCH TO the OCP mode!
-                self._inst.write(':OCP:FUNC')
-                self._param_state[':FUNCTION:MODE'] = 'OCP'
-                self._cur_const_mode = None
-            case 'OPPT':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in OPP mode, but it
-                # doesn't allow us to SWITCH TO the OPP mode!
-                self._inst.write(':OPP:FUNC')
-                self._param_state[':FUNCTION:MODE'] = 'OPP'
-                self._cur_const_mode = None
-            case 'Ext \u26A0':
-                # EXTI and EXTV are really two different modes, but we treat them
-                # as one for consistency. Unfortunately that means when the user switches
-                # to "EXT" mode, you don't know whether they actually want V or I,
-                # so we just assume V.
-                self._cur_const_mode = 'Voltage'
-                new_param_state[':EXT:MODE'] = 'EXTV'
-            case 'List':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in List mode, but it
-                # doesn't allow us to SWITCH TO the List mode!
-                self._inst.write(':LIST:STATE:ON')
-                self._param_state[':FUNCTION:MODE'] = 'LIST'
-                self._cur_const_mode = self._param_state[':LIST:MODE'].title()
-            case 'Program':
-                # This is not a parameter with a state - it's just a command to switch
-                # modes. The normal :FUNCTION tells us we're in List mode, but it
-                # doesn't allow us to SWITCH TO the List mode!
-                self._inst.write(':PROGRAM:STATE:ON')
-                self._param_state[':FUNCTION:MODE'] = 'PROGRAM'
-                self._cur_const_mode = None
-
-        # Changing the mode turns off the load and short.
-        # We have to do this manually in order for the later mode change to take effect.
-        # If you try to change mode while the load is on, the SDL turns off the load,
-        # but then ignores the mode change.
-        self._update_load_state(0)
-        self._update_short_state(0)
-
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_dynamic_mode(self):
-        """Handle clicking on a Dynamic Mode button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-
-        self._cur_dynamic_mode = rb.wid
-
-        # Changing the mode turns off the load and short.
-        # We have to do this manually in order for the later mode change to take effect.
-        # If you try to change mode while the load is on, the SDL turns off the load,
-        # but then ignores the mode change.
-        self._update_load_state(0)
-        self._update_short_state(0)
-
-        info = self._cur_mode_param_info()
-        mode_name = info['mode_name']
-        new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper(),
-                           f':{mode_name}:TRANSIENT:MODE': rb.wid.upper()}
-
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_const_mode(self):
-        """Handle clicking on a Constant Mode button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        self._cur_const_mode = rb.wid
-        match self._cur_overall_mode:
-            case 'Basic':
-                new_param_state = {':FUNCTION': self._cur_const_mode.upper()}
-            case 'Dynamic':
-                new_param_state = {':FUNCTION:TRANSIENT': self._cur_const_mode.upper()}
-                info = self._cur_mode_param_info(null_dynamic_mode_ok=True)
-                mode_name = info['mode_name']
-                self._cur_dynamic_mode = (
-                    self._param_state[f':{mode_name}:TRANSIENT:MODE'].title())
-            case 'Battery':
-                new_param_state = {':BATTERY:MODE': self._cur_const_mode.upper()}
-            case 'Ext \u26A0':
-                if self._cur_const_mode == 'Voltage':
-                    new_param_state = {':EXT:MODE': 'EXTV'}
-                else:
-                    new_param_state = {':EXT:MODE': 'EXTI'}
-            case 'List':
-                new_param_state = {':LIST:MODE': self._cur_const_mode.upper()}
-            # None of the other modes have a "constant mode"
-
-        # Changing the mode turns off the load and short.
-        # We have to do this manually in order for the later mode change to take effect.
-        # If you try to change mode while the load is on, the SDL turns off the load,
-        # but then ignores the mode change.
-        self._update_load_state(0)
-        self._update_short_state(0)
-
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
-
-    def _on_click_range(self):
-        """Handle clicking on a V or I range button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        info = self._cur_mode_param_info()
-        mode_name = info['mode_name']
-        val = rb.wid
-        trans = self._transient_string()
-        if val.endswith('V'):
-            new_param_state = {f':{mode_name}{trans}:VRANGE': val.strip('V')}
-        else:
-            new_param_state = {f':{mode_name}{trans}:IRANGE': val.strip('A')}
-        self._update_param_state_and_inst(new_param_state)
-        self._update_widgets()
+        for w in self._widgets_measurements:
+            if state:
+                w.show()
+            else:
+                w.hide()
 
     def _on_value_change(self):
         """Handle clicking on any input value edit box."""
@@ -1033,58 +766,6 @@ Copyright 2022, Robert S. French"""
             self._update_list_mode_from_instrument(new_rows_only=True)
         self._update_widgets()
 
-    def _on_click_ext_voltage_sense(self):
-        """Handle click on External Voltage Source checkbox."""
-        cb = self.sender()
-        load_on = self._param_state[':INPUT:STATE']
-        # You can't change the voltage source with the load on, so really quickly
-        # turn it off and then back on.
-        if load_on:
-            self._update_load_state(0, update_widgets=False)
-        if cb.isChecked():
-            new_param_state = {':SYSTEM:SENSE:STATE': 1}
-        else:
-            new_param_state = {':SYSTEM:SENSE:STATE': 0}
-        self._update_param_state_and_inst(new_param_state)
-        if load_on:
-            self._update_load_state(1)
-
-    def _on_click_breakover_voltage_latch(self):
-        """Handle click on Breakover Voltage Latch checkbox."""
-        cb = self.sender()
-        if cb.isChecked():
-            new_param_state = {':VOLTAGE:LATCH:STATE': 1}
-        else:
-            new_param_state = {':VOLTAGE:LATCH:STATE': 0}
-        self._update_param_state_and_inst(new_param_state)
-
-    def _on_click_ext_input_state(self):
-        """Handle click on External Input Control checkbox."""
-        cb = self.sender()
-        if cb.isChecked():
-            new_param_state = {':EXT:INPUT:STATE': 1}
-        else:
-            new_param_state = {':EXT:INPUT:STATE': 0}
-        self._update_param_state_and_inst(new_param_state)
-
-    def _on_click_imonitor(self):
-        """Handle click on Enable Ext Current Monitor checkbox."""
-        cb = self.sender()
-        if cb.isChecked():
-            new_param_state = {':SYSTEM:IMONITOR:STATE': 1}
-        else:
-            new_param_state = {':SYSTEM:IMONITOR:STATE': 0}
-        self._update_param_state_and_inst(new_param_state)
-
-    def _on_click_vmonitor(self):
-        """Handle click on Enable Ext Voltage Monitor checkbox."""
-        cb = self.sender()
-        if cb.isChecked():
-            new_param_state = {':SYSTEM:VMONITOR:STATE': 1}
-        else:
-            new_param_state = {':SYSTEM:VMONITOR:STATE': 0}
-        self._update_param_state_and_inst(new_param_state)
-
     def _on_list_table_change(self, row, column, val):
         """Handle change to any List Mode table value."""
         match column:
@@ -1098,53 +779,6 @@ Copyright 2022, Robert S. French"""
                 self._list_mode_slews[row] = val
                 self._inst.write(f':LIST:SLEW {row+1},{val:.3f}')
         self._update_list_table_graph(update_table=False)
-
-    def _on_click_short_enable(self):
-        """Handle clicking on the short enable checkbox."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        cb = self.sender()
-        if not cb.isChecked():
-            self._update_short_onoff_button(None)
-        else:
-            self._update_short_state(0) # Also updates the button
-
-    def _on_click_short_on_off(self):
-        """Handle clicking on the SHORT button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        state = 1-self._param_state[':SHORT:STATE']
-        self._update_short_state(state) # Also updates the button
-
-    def _update_short_onoff_button(self, state=None):
-        """Update the style of the SHORT button based on current or given state."""
-        if state is None:
-            state = self._param_state[':SHORT:STATE']
-        bt = self._widget_registry['ShortONOFF']
-        if state:
-            bt.setText('\u26A0 SHORT IS ON \u26A0')
-            bg_color = '#ff0000'
-        else:
-            bt.setText('SHORT IS OFF')
-            bg_color = '#00ff00'
-        ss = f"""QPushButton {{
-                background-color: {bg_color};
-                min-width: 7.5em; max-width: 7.5em; min-height: 1.1em; max-height: 1.1em;
-                border-radius: 0.3em; border: 3px solid black;
-                font-weight: bold; font-size: 14px; }}
-             QPushButton::pressed {{ border: 4px solid black; }}
-              """
-        bt.setStyleSheet(ss)
-        if self._cur_overall_mode in ('Battery', 'OCPT', 'OPPT', 'List', 'Program'):
-            # There is no SHORT capability in these modes
-            self._widget_registry['ShortONOFFEnable'].setEnabled(False)
-            self._widget_registry['ShortONOFF'].setEnabled(False)
-        elif self._widget_registry['ShortONOFFEnable'].isChecked():
-            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
-            self._widget_registry['ShortONOFF'].setEnabled(True)
-        else:
-            self._widget_registry['ShortONOFFEnable'].setEnabled(True)
-            self._widget_registry['ShortONOFF'].setEnabled(False)
 
     def _on_click_load_on_off(self):
         """Handle clicking on the LOAD button."""
@@ -1180,62 +814,6 @@ Copyright 2022, Robert S. French"""
               """
         bt.setStyleSheet(ss)
 
-    def _on_click_trigger_source(self):
-        """Handle clicking on a trigger source button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        rb = self.sender()
-        if not rb.isChecked():
-            return
-        new_param_state = {':TRIGGER:SOURCE': rb.mode.upper()}
-        self._update_param_state_and_inst(new_param_state)
-        self._update_trigger_buttons()
-
-    def _update_trigger_buttons(self):
-        """Update the trigger button based on the current state."""
-        src = self._param_state[':TRIGGER:SOURCE']
-        self._widget_registry['Trigger_Bus'].setChecked(src == 'BUS')
-        self._widget_registry['Trigger_Man'].setChecked(src == 'MANUAL')
-        self._widget_registry['Trigger_Ext'].setChecked(src == 'EXTERNAL')
-
-        enabled = False
-        if (src == 'BUS' and
-            self._param_state[':INPUT:STATE'] and
-            ((self._cur_overall_mode == 'Dynamic' and
-              self._cur_dynamic_mode != 'Continuous') or
-             self._cur_overall_mode in ('List', 'Program'))):
-            enabled = True
-        self._widget_registry['Trigger'].setEnabled(enabled)
-
-    def _on_click_trigger(self):
-        """Handle clicking on the main trigger button."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
-        self._inst.trg()
-        if self._cur_overall_mode == 'List':
-            # Hitting TRIG while List mode is running causes it to stop after the
-            # current step is complete. Triggering multiple times doesn't change this.
-            if not self._list_mode_running:
-                if self._list_mode_cur_step_num is None:
-                    self._list_mode_cur_step_num = 0
-                self._list_mode_running = True
-                self._list_mode_cur_step_start_time = time.time()
-                self._list_mode_stopping = False
-                self._list_mode_timer.start()
-            else:
-                # We stop the progression AFTER the current step finished
-                self._list_mode_stopping = True
-                if self._list_mode_cur_step_num == self._param_state[':LIST:STEP']-1:
-                    QMessageBox.warning(
-                        self, 'Warning',
-                        'Due to a bug in the SDL1000, pausing in List Mode on the final '
-                        'step and then resuming will cause execution of an additional '
-                        'step not currently displayed. This will confuse the status '
-                        'display and could potentially damage your device under test. '
-                        'It is strongly recommended that you not resume List Mode '
-                        'sequencing at this point but instead turn off the load to '
-                        'reset to step 1. This bug has been reported to Siglent.')
-
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
         if self._disable_callbacks: # Prevent recursive calls
@@ -1248,33 +826,12 @@ Copyright 2022, Robert S. French"""
                 self._enable_measurement_c = cb.isChecked()
             case 'P':
                 self._enable_measurement_p = cb.isChecked()
-            case 'R':
-                self._enable_measurement_r = cb.isChecked()
-            case 'TR':
-                self._enable_measurement_trise = cb.isChecked()
-            case 'TF':
-                self._enable_measurement_tfall = cb.isChecked()
-        if self._enable_measurement_trise or self._enable_measurement_tfall:
-            new_param_state = {':TIME:TEST:STATE': 1}
-        else:
-            new_param_state = {':TIME:TEST:STATE': 0}
         self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
-
-    def _on_click_reset_batt_test(self):
-        """Handle clicking on the reset battery log button."""
-        self._inst.write(':BATTERY:ADDCAP 0')
-        self._reset_batt_log()
 
     ################################
     ### Internal helper routines ###
     ################################
-
-    def _transient_string(self):
-        """Return the SCPI substring corresponding to the Dynamic mode, if applicable."""
-        if self._cur_overall_mode == 'Dynamic':
-            return ':TRANSIENT'
-        return ''
 
     def _scpi_cmds_from_param_info(self, param_info, param_spec):
         """Create a SCPI command from a param_info structure."""
@@ -2025,35 +1582,16 @@ class InstrumentSiglentSPD3303(Device4882):
         self._validator_1(val)
         self.write(f':INPUT:STATE {val}')
 
-    def measure_voltage(self):
-        return float(self.query('MEAS:VOLT?'))
+    def measure_voltage(self, ch):
+        return float(self.query(f'MEAS:VOLT? CH{ch}'))
 
-    def measure_current(self):
-        return float(self.query('MEAS:CURR?'))
+    def measure_current(self, ch):
+        return float(self.query(f'MEAS:CURR? CH{ch}'))
 
-    def measure_power(self):
-        return float(self.query('MEAS:POW?'))
+    def measure_power(self, ch):
+        return float(self.query(f'MEAS:POWER? CH{ch}'))
 
-    def measure_trise(self):
-        return float(self.query('TIME:TEST:RISE?'))
-
-    def measure_tfall(self):
-        return float(self.query('TIME:TEST:FALL?'))
-
-    def measure_resistance(self):
-        return float(self.query('MEAS:RES?'))
-
-    def measure_battery_time(self):
-        return float(self.query(':BATTERY:DISCHA:TIMER?'))
-
-    def measure_battery_capacity(self):
-        return float(self.query(':BATTERY:DISCHA:CAP?')) / 1000
-
-    def measure_battery_add_capacity(self):
-        return float(self.query(':BATTERY:ADDCAP?')) / 1000
-
-    def measure_vcpr(self):
-        return (self.measure_voltage(),
-                self.measure_current(),
-                self.measure_power(),
-                self.measure_resistance())
+    def measure_vcp(self, ch):
+        return (self.measure_voltage(ch),
+                self.measure_current(ch),
+                self.measure_power(ch))

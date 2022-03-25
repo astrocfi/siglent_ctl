@@ -33,6 +33,8 @@ Siglent Technologies,SDS1204X-E,SDSMMEBQ4R5097,8.2.6.1.37R2
 Siglent Technologies,SPD3303X-E,SPD3XIDD5R6400,1.01.01.02.07R2,V3.0
 
 - Note no status available for P3
+- No way to track timer mode
+
 
 ** SDG **
 

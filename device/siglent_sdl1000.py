@@ -1053,6 +1053,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     ############################################################################
 
     def _init_widgets(self):
+        """Set up all the toplevel widgets."""
         toplevel_widget = self._toplevel_widget()
 
         ### Add to Device menu
@@ -1608,6 +1609,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
     #     - If the SCPI parameter starts with ":" then the current mode is not
     #       prepended during widget update.
     def _init_widgets_value_box(self, title, details, layout=None):
+        """Set up spinboxes for one frame."""
         # Value for most modes
         widget_prefix = title.replace(' ', '')
         if layout is None:
