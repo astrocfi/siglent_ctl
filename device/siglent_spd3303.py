@@ -107,6 +107,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         self._timer_mode_cur_step_start_time = [None, None]
         self._timer_mode_cur_step_num = [None, None]
 
+        # Stored measurements and triggers
+        self._cached_measurements = None
+        self._cached_triggers = None
+
         # Used to enable or disable measurement of parameters to speed up
         # data acquisition.
         self._enable_measurement_v = True
@@ -192,7 +196,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 #   9 - CH2 analog, waveform
 
 
-    def update_measurements(self, read_inst=True):
+    def update_measurements_and_triggers(self, read_inst=True):
         """Read current values, update control panel display, return the values."""
         if read_inst:
             status = int(self._inst.query('SYST:STATUS?').replace('0x', ''), base=16)
@@ -203,6 +207,24 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             self._update_output_on_off_buttons()
 
         measurements = {}
+        triggers = {}
+
+        triggers['CH1On'] = {'name': 'CH1 On',
+                             'val':  self._psu_on_off[0]}
+        triggers['CH2On'] = {'name': 'CH2 On',
+                             'val':  self._psu_on_off[1]}
+        triggers['CH1CV'] = {'name': 'CH1 CV Mode',
+                             'val':  not self._psu_cc[0]}
+        triggers['CH2CV'] = {'name': 'CH2 CV Mode',
+                             'val':  not self._psu_cc[1]}
+        triggers['CH1CC'] = {'name': 'CH1 CC Mode',
+                             'val':  self._psu_cc[0]}
+        triggers['CH2CC'] = {'name': 'CH2 CC Mode',
+                             'val':  self._psu_cc[1]}
+        triggers['CH1TimerRunning'] = {'name': 'CH1 Timer Running',
+                                       'val':  self._timer_mode_running[0]}
+        triggers['CH2TimerRunning'] = {'name': 'CH2 Timer Running',
+                                       'val':  self._timer_mode_running[1]}
 
         for ch in range(2):
             voltage = None
@@ -241,7 +263,21 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                                             'unit':  'W',
                                             'val':   power}
 
-        return measurements
+        self._cached_measurements = measurements
+        self._cached_triggers = triggers
+        return measurements, triggers
+
+    def get_measurements(self):
+        """Return most recently cached measurements."""
+        if self._cached_measurements is None:
+            self.update_measurements_and_triggers()
+        return self._cached_measurements
+
+    def get_triggers(self):
+        """Return most recently cached triggers."""
+        if self._cached_triggers is None:
+            self.update_measurements_and_triggers()
+        return self._cached_triggers
 
     ############################################################################
     ### Setup Window Layout
@@ -299,8 +335,13 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
     def _init_widgets_add_channel(self, ch):
         """Set up the widgets for one channel."""
         frame = QGroupBox(f'Channel {ch+1}')
-        # ss = """QGroupBox { border: 5px solid red; }"""
-        # frame.setStyleSheet(ss)
+        if ch == 0:
+            bgcolor = '#a0ff80'
+        else:
+            bgcolor = '#ffff20'
+        ss = f"""\QGroupBox::title {{ subcontrol-position: top center;
+                                     background-color: {bgcolor}; color: black; }}"""
+        frame.setStyleSheet(ss)
 
         vert_layout = QVBoxLayout(frame)
         vert_layout.setContentsMargins(0, 0, 0, 0)
@@ -390,8 +431,11 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         vert_layout.addWidget(w)
         self._widgets_preset_buttons.append(w)
         layoutg = QGridLayout(w)
-        ss = """min-width: 7em; max-width: 7em; font-weight: bold;
-                border-radius: 0.5em; border: 2px solid black;"""
+        ss = """QPushButton { min-width: 7em; max-width: 7em;
+                              min-height: 1em; max-height: 1em;
+                              font-weight: bold;
+                              border-radius: 0.5em; border: 2px solid black; }
+                QPushButton::pressed { border: 3px solid black; }"""
         for preset_num in range(6):
             row, column = divmod(preset_num, 2)
             button = LongClickButton(f'32.000V / 3.200A',
@@ -596,6 +640,8 @@ Connected to {self._inst._resource_name}
     def _on_preset_clicked(self, button):
         ch, preset_num = button.wid
         volt, curr = self._presets[ch][preset_num]
+        self._psu_voltage[ch] = volt
+        self._psu_current[ch] = curr
         self._widget_registry[f'SetPoint{ch}V'].setValue(volt)
         self._widget_registry[f'SetPoint{ch}I'].setValue(curr)
         self._inst.write(f'CH{ch+1}:VOLT {volt:.3f}')
@@ -836,107 +882,6 @@ Connected to {self._inst._resource_name}
                         self._timer_mode_cur_step_num+1) % self._param_state[':LIST:STEP']
                 self._timer_mode_cur_step_start_time = cur_time - delta
             self._update_timer_table_graph(list_step_only=True)
-
-    def _cur_mode_param_info(self, null_dynamic_mode_ok=False):
-        if self._cur_overall_mode == 'Dynamic':
-            if null_dynamic_mode_ok and self._cur_dynamic_mode is None:
-                # We fake this here for refresh(), where we don't know the dynamic
-                # mode until we know we're in the dynamic mode itself...catch 22
-                key = (self._cur_overall_mode, self._cur_const_mode, 'Continuous')
-            else:
-                key = (self._cur_overall_mode, self._cur_const_mode,
-                       self._cur_dynamic_mode)
-        else:
-            key = (self._cur_overall_mode, self._cur_const_mode)
-        return _SDL_MODE_PARAMS[key]
-
-    def _update_param_state_and_inst(self, new_param_state):
-        for key, data in new_param_state.items():
-            if data != self._param_state[key]:
-                self._update_one_param_on_inst(key, data)
-                self._param_state[key] = data
-
-    def _update_one_param_on_inst(self, key, data):
-        fmt_data = data
-        if isinstance(data, bool):
-            fmt_data = '1' if True else '0'
-        elif isinstance(data, float):
-            fmt_data = '%.6f' % data
-        elif isinstance(data, int):
-            fmt_data = int(data)
-        elif isinstance(data, str):
-            # This is needed because there are a few places when the instrument
-            # is case-sensitive to the SCPI argument! For example,
-            # "TRIGGER:SOURCE Bus" must be "BUS"
-            fmt_data = data.upper()
-        else:
-            assert False
-        self._inst.write(f'{key} {fmt_data}')
-
-    def _reset_batt_log(self):
-        self._batt_log_modes = []
-        self._batt_log_stop_cond = []
-        self._batt_log_start_times = []
-        self._batt_log_end_times = []
-        self._batt_log_run_times = []
-        self._batt_log_initial_voltage = None
-        self._batt_log_initial_voltages = []
-        self._batt_log_caps = []
-
-    @staticmethod
-    def _time_to_str(t):
-        return time.strftime('%Y %b %d %H:%M:%S', time.localtime(t))
-
-    @staticmethod
-    def _time_to_hms(t):
-        m, s = divmod(t, 60)
-        h, m = divmod(m, 60)
-        return '%02d:%02d:%02d' % (h, m, s)
-
-    def _batt_log_report(self):
-        n_entries = len(self._batt_log_start_times)
-        if n_entries == 0:
-            return None
-        single = (n_entries == 1)
-        ret = f'Test device: {self._inst.manufacturer} {self._inst.model}\n'
-        ret += f'S/N: {self._inst.serial_number}\n'
-        ret += f'Firmware: {self._inst.firmware_version}\n'
-        if not single:
-            ret += '** Overall test **\n'
-        ret += 'Start time: '+self._time_to_str(self._batt_log_start_times[0])+'\n'
-        ret += 'End time: '+self._time_to_str(self._batt_log_end_times[-1])+'\n'
-        t = self._batt_log_end_times[-1]-self._batt_log_start_times[0]
-        ret += 'Elapsed time: '+self._time_to_hms(t)+'\n'
-        if not single:
-            t = sum(self._batt_log_run_times)
-            ret += 'Test time: '+self._time_to_hms(t)+'\n'
-        if single:
-            ret += 'Test mode: '+self._batt_log_modes[0]+'\n'
-            ret += 'Stop condition: '+self._batt_log_stop_cond[0]+'\n'
-            if self._batt_log_initial_voltages[0] is None:
-                ret += 'Initial voltage: Not measured\n'
-            else:
-                init_v = self._batt_log_initial_voltages[0]
-                ret += f'Initial voltage: {init_v:.3f}V\n'
-        cap = sum(self._batt_log_caps)
-        ret += f'Capacity: {cap:.3f}Ah\n'
-        if not single:
-            for i in range(n_entries):
-                ret += f'** Test segment #{i+1}  **\n'
-                ret += 'Start time: '+self._time_to_str(self._batt_log_start_times[i])
-                ret += '\n'
-                ret += 'End time: '+self._time_to_str(self._batt_log_end_times[i])+'\n'
-                ret += 'Test time: '+self._time_to_hms(self._batt_log_run_times[i])+'\n'
-                ret += 'Test mode: '+self._batt_log_modes[i]+'\n'
-                ret += 'Stop condition: '+self._batt_log_stop_cond[i]+'\n'
-                if self._batt_log_initial_voltages[i] is None:
-                    ret += 'Initial voltage: Not measured\n'
-                else:
-                    init_v = self._batt_log_initial_voltages[i]
-                    ret += f'Initial voltage: {init_v:.3f}V\n'
-                cap = self._batt_log_caps[i]
-                ret += f'Capacity: {cap:.3f}Ah\n'
-        return ret
 
 
 ##########################################################################################

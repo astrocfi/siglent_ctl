@@ -656,6 +656,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._list_mode_cur_step_num = None
         self._list_mode_stopping = False
 
+        # Stored measurements and triggers
+        self._cached_measurements = None
+        self._cached_triggers = None
+
         # Used to enable or disable measurement of parameters to speed up
         # data acquisition.
         self._enable_measurement_v = True
@@ -772,9 +776,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         self._update_state_from_param_state()
         self._put_inst_in_mode(self._cur_overall_mode, self._cur_const_mode)
 
-    def update_measurements(self, read_inst=True):
+    def update_measurements_and_triggers(self, read_inst=True):
         """Read current values, update control panel display, return the values."""
         # Update the load on/off state in case we hit a protection limit
+        input_state = 0
         if read_inst:
             input_state = int(self._inst.query(':INPUT:STATE?'))
             if self._param_state[':INPUT:STATE'] != input_state:
@@ -782,6 +787,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 self._update_load_state(input_state, update_inst=False)
 
         measurements = {}
+        triggers = {}
+
+        triggers['LoadOn'] = {'name': 'Load On',
+                              'val':  bool(input_state)}
+        triggers['ListRunning'] = {'name': 'List Mode Running',
+                                   'val':  bool(self._list_mode_running)}
 
         voltage = None
         if read_inst:
@@ -792,9 +803,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 w.setText(f'{voltage:10.6f} V')
             else:
                 w.setText('---   V')
-        measurements['Voltage'] = {'name':  'Voltage',
-                                   'unit':  'V',
-                                   'val':   voltage}
+        measurements['Voltage'] = {'name': 'Voltage',
+                                   'unit': 'V',
+                                   'val':  voltage}
 
         current = None
         if read_inst:
@@ -808,9 +819,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'{current:10.6f} A')
             else:
                 w.setText('---   A')
-        measurements['Current'] = {'name':  'Current',
-                                   'unit':  'A',
-                                   'val':   current}
+        measurements['Current'] = {'name': 'Current',
+                                   'unit': 'A',
+                                   'val':  current}
 
         power = None
         if read_inst:
@@ -824,9 +835,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'{power:10.6f} W')
             else:
                 w.setText('---   W')
-        measurements['Power'] = {'name':  'Power',
-                                 'unit':  'W',
-                                 'val':   power}
+        measurements['Power'] = {'name': 'Power',
+                                 'unit': 'W',
+                                 'val':  power}
 
         resistance = None
         if read_inst:
@@ -852,9 +863,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'{fmt} \u2126' % resistance)
             else:
                 w.setText('---   \u2126')
-        measurements['Resistance'] = {'name':  'Resistance',
-                                      'unit':  '\u2126',
-                                      'val':   resistance}
+        measurements['Resistance'] = {'name': 'Resistance',
+                                      'unit': '\u2126',
+                                      'val':  resistance}
 
         trise = None
         if read_inst:
@@ -919,20 +930,34 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     total_cap = add_cap
                 w = self._widget_registry['MeasureBattTotalCap']
                 w.setText(f'Total Cap: {total_cap:7.3f} Ah')
-        measurements['Discharge Time'] = {'name':  'Batt Dischg Time',
-                                          'unit':  's',
-                                          'val':   disch_time}
-        measurements['Capacity'] =       {'name':  'Batt Capacity', # noqa: E222
-                                          'unit':  'Ah',
-                                          'val':   disch_cap}
-        measurements['Addl Capacity'] =  {'name':  'Batt Addl Cap', # noqa: E222
-                                          'unit':  'Ah',
-                                          'val':   add_cap}
-        measurements['Total Capacity'] = {'name':  'Batt Total Cap',
-                                          'unit':  'Ah',
-                                          'val':   total_cap}
+        measurements['Discharge Time'] = {'name': 'Batt Dischg Time',
+                                          'unit': 's',
+                                          'val':  disch_time}
+        measurements['Capacity'] =       {'name': 'Batt Capacity', # noqa: E222
+                                          'unit': 'Ah',
+                                          'val':  disch_cap}
+        measurements['Addl Capacity'] =  {'name': 'Batt Addl Cap', # noqa: E222
+                                          'unit': 'Ah',
+                                          'val':  add_cap}
+        measurements['Total Capacity'] = {'name': 'Batt Total Cap',
+                                          'unit': 'Ah',
+                                          'val':  total_cap}
 
-        return measurements
+        self._cached_measurements = measurements
+        self._cached_triggers = triggers
+        return measurements, triggers
+
+    def get_measurements(self):
+        """Return most recently cached measurements."""
+        if self._cached_measurements is None:
+            self.update_measurements_and_triggers()
+        return self._cached_measurements
+
+    def get_triggers(self):
+        """Return most recently cached triggers."""
+        if self._cached_triggers is None:
+            self.update_measurements_and_triggers()
+        return self._cached_triggers
 
     ############################################################################
     ### Setup Window Layout

@@ -265,6 +265,7 @@ class LongClickButton(QPushButton):
     # Rewrite the mousePressEvent method and turn on the timer
     def mousePressEvent(self, e):
         self._timer.start(self._delay)
+        super().mousePressEvent(e)
 
     # Override the mouseReleaseEvent method and close the timer
     def mouseReleaseEvent(self, e):
@@ -272,6 +273,7 @@ class LongClickButton(QPushButton):
         self._timer.stop()
         if active:
             self._click_handler(self)
+        super().mouseReleaseEvent(e)
 
     # What to do after long press
     def long_click(self):

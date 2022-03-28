@@ -26,9 +26,12 @@ import platform
 import sys
 import time
 
-from PyQt6.QtWidgets import (QDialog,
+from PyQt6.QtWidgets import (QButtonGroup,
+                             QComboBox,
+                             QDialog,
                              QDialogButtonBox,
                              QDoubleSpinBox,
+                             QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
                              QLabel,
@@ -37,6 +40,7 @@ from PyQt6.QtWidgets import (QDialog,
                              QMenuBar,
                              QMessageBox,
                              QPushButton,
+                             QRadioButton,
                              QVBoxLayout,
                              QWidget,
                             )
@@ -134,7 +138,15 @@ class MainWindow(QWidget):
 
         self._plot_window_widgets = []
 
-        self._paused = True
+        self._acquisition_mode = 'Manual'
+        self._acquisition_ready = True
+        self._user_paused = False
+        self._measurement_state_source = None
+        self._measurement_value_source = None
+        self._measurement_value_op = '>'
+        self._measurement_value_comp = 0
+
+        self._widget_registry = {}
 
         ### Layout the widgets
 
@@ -187,8 +199,8 @@ class MainWindow(QWidget):
         layouth = QHBoxLayout()
         layoutv.addLayout(layouth)
 
-        frame = QGroupBox('Measurement')
-        frame.setStyleSheet("""QGroupBox { min-width: 14em; max-width: 14em; }""")
+        frame = QGroupBox('Measurement and Acquisition')
+        frame.setStyleSheet("""QGroupBox { min-width: 20em; max-width: 20em; }""")
         layoutv2 = QVBoxLayout(frame)
         layouth.addWidget(frame)
 
@@ -209,23 +221,115 @@ class MainWindow(QWidget):
 
         layouth2 = QHBoxLayout()
         layoutv2.addLayout(layouth2)
-        button = QPushButton('Erase All')
+        button = QPushButton('\u23F5 Record')
+        ss = """min-width: 4.5em; max-width: 4.5em; min-height: 1.5em; max-height: 1.5em;
+                border-radius: 0.5em; border: 2px solid black; font-weight: bold;
+                background-color: #80ff40;"""
+        button.setStyleSheet(ss)
+        self._widget_registry['GoButton'] = button
+        button.clicked.connect(self._on_click_go)
+        layouth2.addWidget(button)
+        button = QPushButton('\u23F8 Pause')
+        ss = """min-width: 4.5em; max-width: 4.5em; min-height: 1.5em; max-height: 1.5em;
+                border-radius: 0.5em; border: 2px solid black; font-weight: bold;
+                background-color: #ff8080;"""
+        button.setStyleSheet(ss)
+        self._widget_registry['PauseButton'] = button
+        button.clicked.connect(self._on_click_pause)
+        layouth2.addWidget(button)
+        button = QPushButton('\u26A0 Erase All Data \u26A0')
+        ss = """background: black; color: red;"""
+        button.setStyleSheet(ss)
+        layouth2.addStretch()
         layouth2.addWidget(button)
         button.clicked.connect(self._on_erase_all)
-        button = QPushButton()
-        self._widget_pause_go = button
-        layouth2.addWidget(button)
-        button.clicked.connect(self._on_pause_go)
-        layouth2.addStretch()
 
+        layoutg = QGridLayout()
+        layoutv2.addLayout(layoutg)
+        bg = QButtonGroup(layoutg)
+
+        rb = QRadioButton('Manual')
+        layoutg.addWidget(rb, 0, 0)
+        bg.addButton(rb)
+        rb.setChecked(True)
+        rb.wid = 'Manual'
+        rb.toggled.connect(self._on_click_acquisition_mode)
+
+        rb = QRadioButton('Instrument State:')
+        layoutg.addWidget(rb, 1, 0)
+        bg.addButton(rb)
+        rb.setChecked(False)
+        rb.wid = 'State'
+        rb.toggled.connect(self._on_click_acquisition_mode)
+        layouth = QHBoxLayout()
+        layoutg.addLayout(layouth, 1, 1)
+        combo = QComboBox()
+        layouth.addWidget(combo)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.activated.connect(self._on_select_meas_state_source)
+        self._widget_registry['InstrumentStateCombo'] = combo
+        layouth.addStretch()
+
+        rb = QRadioButton('Measurement Value:')
+        layoutg.addWidget(rb, 2, 0)
+        bg.addButton(rb)
+        rb.setChecked(False)
+        rb.wid = 'Value'
+        rb.toggled.connect(self._on_click_acquisition_mode)
+        layouth = QHBoxLayout()
+        layoutg.addLayout(layouth, 2, 1)
+        combo = QComboBox()
+        layouth.addWidget(combo)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.activated.connect(self._on_select_meas_value_source)
+        self._widget_registry['MeasurementValueSourceCombo'] = combo
+        layouth.addStretch()
+
+        layouth = QHBoxLayout()
+        layoutg.addLayout(layouth, 3, 1)
+        combo = QComboBox()
+        combo.addItem('Less than', userData='<')
+        combo.addItem('Less than or equal', userData='<=')
+        combo.addItem('Greater than', userData='>')
+        combo.addItem('Greater than or equal', userData='<')
+        layouth.addWidget(combo)
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.activated.connect(self._on_select_meas_value_op)
+        self._widget_registry['MeasurementValueOperatorCombo'] = combo
+        layouth.addStretch()
+
+        layouth = QHBoxLayout()
+        layoutg.addLayout(layouth, 4, 1)
+        input = QDoubleSpinBox()
+        input.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layouth.addWidget(input)
+        input.setRange(-1000000, 1000000)
+        input.setSingleStep(1)
+        input.editingFinished.connect(self._on_value_changed_meas_comp)
+        self._widget_registry['MeasurementValueComp'] = input
+        layouth.addStretch()
+
+        layouth = QHBoxLayout()
+        layoutv2.addLayout(layouth)
+        layoutv3 = QVBoxLayout()
+        layouth.addLayout(layoutv3)
         self._widget_measurement_started = QLabel('Started: N/A')
-        layoutv2.addWidget(self._widget_measurement_started)
+        layoutv3.addWidget(self._widget_measurement_started)
         self._widget_measurement_elapsed = QLabel('Elapsed: N/A')
-        layoutv2.addWidget(self._widget_measurement_elapsed)
+        layoutv3.addWidget(self._widget_measurement_elapsed)
         self._widget_measurement_points = QLabel('# Data Points: 0')
-        layoutv2.addWidget(self._widget_measurement_points)
+        layoutv3.addWidget(self._widget_measurement_points)
+        layouth.addStretch()
+        layoutv3 = QVBoxLayout()
+        layouth.addLayout(layoutv3)
+        layoutv3.addStretch()
+        label = QLabel('')
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layoutv3.addWidget(label)
+        self._widget_registry['AcquisitionIndicator'] = label
 
-        self._update_pause_go_button()
+        self._update_pause_go_buttons()
+        self._update_acquisition_indicator()
 
         self._heartbeat_timer = QTimer(self.app)
         self._heartbeat_timer.timeout.connect(self._heartbeat_update)
@@ -253,23 +357,64 @@ class MainWindow(QWidget):
     def _on_erase_all(self):
         """Handle Erase All button."""
         self._measurement_times = []
-        self._measurements = {}
-        self._measurement_units = {}
-        self._measurement_names = {}
+        for key in self._measurements:
+            self._measurements[key] = []
         self._update()
 
-    def _on_pause_go(self):
-        """Handle Pause/Go button."""
-        self._paused = not self._paused
-        self._update_pause_go_button()
+    def _on_click_acquisition_mode(self):
+        """Handle Measurement Mode radio buttons."""
+        rb = self.sender()
+        if not rb.isChecked():
+            return
+        self._acquisition_mode = rb.wid
+        self._check_acquisition_ready()
+        self._update_widgets()
 
-    def _update_pause_go_button(self):
-        if self._paused:
-            self._widget_pause_go.setText('\u23F5 Record')
-            self._widget_pause_go.setStyleSheet('background-color: #80ff40;')
-        else:
-            self._widget_pause_go.setText('\u23F8 Pause')
-            self._widget_pause_go.setStyleSheet('background-color: #ff8080;')
+    def _on_select_meas_state_source(self, sel):
+        """Handle Instrument State source selection."""
+        combo = self.sender()
+        self._measurement_state_source = combo.itemData(sel)
+        self._check_acquisition_ready()
+        self._update_widgets()
+        print('S', self._measurement_state_source, self._measurement_value_source,
+              self._measurement_value_op, self._measurement_value_comp)
+
+    def _on_select_meas_value_source(self, sel):
+        """Handle Measurement Value source selection."""
+        combo = self.sender()
+        self._measurement_value_source = combo.itemData(sel)
+        self._check_acquisition_ready()
+        self._update_widgets()
+        print('S', self._measurement_state_source, self._measurement_value_source,
+              self._measurement_value_op, self._measurement_value_comp)
+
+    def _on_select_meas_value_op(self, sel):
+        """Handle Measurement Value operator selection."""
+        combo = self.sender()
+        self._measurement_value_op = combo.itemData(sel)
+        self._check_acquisition_ready()
+        self._update_widgets()
+        print('S', self._measurement_state_source, self._measurement_value_source,
+              self._measurement_value_op, self._measurement_value_comp)
+
+    def _on_value_changed_meas_comp(self):
+        """Handle Measurement Value comparison value changed."""
+        input = self.sender()
+        self._measurement_value_comp = input.value()
+        self._check_acquisition_ready()
+        self._update_widgets()
+        print('S', self._measurement_state_source, self._measurement_value_source,
+              self._measurement_value_op, self._measurement_value_comp)
+
+    def _on_click_go(self):
+        """Handle Go button."""
+        self._user_paused = False
+        self._update_widgets()
+
+    def _on_click_pause(self):
+        """Handle Go button."""
+        self._user_paused = True
+        self._update_widgets()
 
     def closeEvent(self, event):
         # Close all the sub-windows, allowing them to shut down peacefully
@@ -317,6 +462,24 @@ class MainWindow(QWidget):
         npts = len(self._measurement_times)
         self._widget_measurement_points.setText(f'# Data Points: {npts}')
 
+    def _check_acquisition_ready(self):
+        """Check to see if the current acquisition trigger is met."""
+        match self._acquisition_mode:
+            case 'Manual':
+                self._acquisition_ready = True
+                return
+            case 'State':
+                for resource_name, inst, config_widget in self._open_resources:
+                    if config_widget is not None:
+                        for index, trigger in enumerate(
+                                config_widget.get_triggers().values()):
+                            key = (inst.name, trigger['name'])
+                            print(key, self._measurement_state_source)
+                            if key == self._measurement_state_source:
+                                self._acquisition_ready = trigger['val']
+                                return
+                assert False, 'State source no longer in open resources'
+
     def _update(self):
         """Query all instruments and update all measurements and display widgets."""
         # Although technically each measurement takes place at a different time,
@@ -324,25 +487,35 @@ class MainWindow(QWidget):
         # time so we can match up measurements in X/Y plots and file saving.
         if len(self._open_resources) == 0:
             return
+        # First update all the cached measurements and config widget displays
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
-                measurements = config_widget.update_measurements()
-                if not self._paused:
-                    for meas_key, meas in measurements.items():
-                        name = meas['name']
-                        key = (inst.name, name)
-                        if key not in self._measurements:
-                            self._measurements[key] = ([np.nan] *
-                                                       len(self._measurement_times))
-                            self._measurement_units[key] = meas['unit']
-                            self._measurement_names[key] = f'{inst.name}: {name}'
-                        val = meas['val']
-                        if val is None:
-                            val = math.nan
-                        self._measurements[key].append(val)
-        if not self._paused:
-            cur_time = time.time()
-            self._measurement_times.append(cur_time)
+                config_widget.update_measurements_and_triggers()
+        # Check for the current trigger condition
+        self._check_acquisition_ready()
+        self._update_acquisition_indicator()
+        if not self._acquisition_ready:
+            return
+        # Now go through and read all the cached measurements
+        if self._user_paused:
+            return
+        cur_time = time.time()
+        self._measurement_times.append(cur_time)
+        for resource_name, inst, config_widget in self._open_resources:
+            if config_widget is not None:
+                measurements = config_widget.get_measurements()
+                for meas_key, meas in measurements.items():
+                    name = meas['name']
+                    key = (inst.name, name)
+                    if key not in self._measurements:
+                        self._measurements[key] = ([np.nan] *
+                                                   len(self._measurement_times))
+                        self._measurement_units[key] = meas['unit']
+                        self._measurement_names[key] = f'{inst.name}: {name}'
+                    val = meas['val']
+                    if val is None:
+                        val = math.nan
+                    self._measurements[key].append(val)
         for plot_widget in self._plot_window_widgets:
             plot_widget.update()
 
@@ -415,7 +588,7 @@ Copyright 2022, Robert S. French"""
 
         # Update the measurement list with newly available measurements
         num_existing = len(self._measurement_times)
-        measurements = config_widget.update_measurements(read_inst=False)
+        measurements, _ = config_widget.update_measurements_and_triggers(read_inst=False)
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (inst.name, name)
@@ -424,6 +597,8 @@ Copyright 2022, Robert S. French"""
             self._measurement_names[key] = f'{inst.name}: {name}'
         for plot_widget in self._plot_window_widgets:
             plot_widget.measurements_changed()
+
+        self._update_widgets()
 
     def _menu_do_exit(self):
         """Perform the menu exit command."""
@@ -449,4 +624,94 @@ Copyright 2022, Robert S. French"""
         for plot_widget in self._plot_window_widgets:
             plot_widget.measurements_changed()
 
-# NEED A WAY TO QUERY MEASUREMENTS WITHOUT TRIGGERING AN INST READ
+        self._update_widgets()
+
+    def _update_widgets(self):
+        """Update our widgets with current information."""
+        state_combo = self._widget_registry['InstrumentStateCombo']
+        state_combo.clear()
+        val_src_combo = self._widget_registry['MeasurementValueSourceCombo']
+        val_src_combo.clear()
+        val_op_combo = self._widget_registry['MeasurementValueOperatorCombo']
+        val_comp = self._widget_registry['MeasurementValueComp']
+        trigger_found = 0
+        val_src_found = 0
+        if len(self._open_resources) == 0:
+            state_combo.setEnabled(False)
+            val_src_combo.setEnabled(False)
+            val_op_combo.setEnabled(False)
+            val_comp.setEnabled(False)
+            self._measurement_state_source = None
+            self._measurement_value_source = None
+            return
+        trigger_index = 0
+        measurement_index = 0
+        for resource_name, inst, config_widget in self._open_resources:
+            if config_widget is not None:
+                for trigger in config_widget.get_triggers().values():
+                    trig_name = trigger['name']
+                    name = f'{inst.name}: {trig_name}'
+                    key = (inst.name, trig_name)
+                    state_combo.addItem(name, userData=key)
+                    if self._measurement_state_source is None:
+                        self._measurement_state_source = key
+                    if key == self._measurement_state_source:
+                        trigger_found = trigger_index
+                    trigger_index += 1
+                for measurement in config_widget.get_measurements().values():
+                    meas_name = measurement['name']
+                    name = f'{inst.name}: {meas_name}'
+                    key = (inst.name, meas_name)
+                    val_src_combo.addItem(name, userData=key)
+                    if self._measurement_value_source is None:
+                        self._measurement_value_source = key
+                    if key == self._measurement_value_source:
+                        val_src_found = measurement_index
+                    measurement_index += 1
+        print('Trigger', trigger_found)
+        state_combo.setCurrentIndex(trigger_found)
+        print('Val src', val_src_found)
+        val_src_combo.setCurrentIndex(val_src_found)
+
+        val_op_combo.setCurrentIndex(val_op_combo.findData(self._measurement_value_op))
+        val_comp.setValue(self._measurement_value_comp)
+
+        state_combo.setEnabled(True)
+        val_src_combo.setEnabled(True)
+        val_op_combo.setEnabled(True)
+        val_comp.setEnabled(True)
+
+        print('U', self._measurement_state_source, self._measurement_value_source,
+              self._measurement_value_op, self._measurement_value_comp)
+
+        self._update_pause_go_buttons()
+        self._update_acquisition_indicator()
+
+    def _update_pause_go_buttons(self):
+        go_button = self._widget_registry['GoButton']
+        pause_button = self._widget_registry['PauseButton']
+        if self._user_paused:
+            go_button.setEnabled(True)
+            pause_button.setEnabled(False)
+        else:
+            go_button.setEnabled(False)
+            pause_button.setEnabled(True)
+
+    def _update_acquisition_indicator(self):
+        label = self._widget_registry['AcquisitionIndicator']
+        if self._acquisition_mode == 'Manual':
+            label.setText('Manual')
+            color = '#000000'
+        else:
+            if self._acquisition_ready:
+                color = '#b00000'
+                label.setText('Acquiring')
+            else:
+                color = '#00b000'
+                label.setText('Waiting')
+        ss = f"""min-width: 4em; max-width: 4em; min-height: 1.5em; max-height: 1.5em;
+                 border: 2px solid black;
+                 text-align: center;
+                 font-weight: bold; font-size: 18px;
+                 background-color: #c0c0c0; color: {color};"""
+        label.setStyleSheet(ss)
