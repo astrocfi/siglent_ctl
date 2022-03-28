@@ -112,16 +112,17 @@ from PyQt6.QtWidgets import (QWidget,
                              QMessageBox,
                              QPushButton,
                              QRadioButton,
-                             QStyledItemDelegate,
                              QTableView,
                              QVBoxLayout)
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QColor
-from PyQt6.QtCore import Qt, QAbstractTableModel, QTimer
 
 import pyqtgraph as pg
 
 from .device import Device4882
-from .config_widget_base import ConfigureWidgetBase
+from .config_widget_base import (ConfigureWidgetBase,
+                                 DoubleSpinBoxDelegate,
+                                 ListTableModel)
 
 
 # Style sheets for different operating systems
@@ -624,121 +625,6 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
           )
         },
 }
-
-
-class DoubleSpinBoxDelegate(QStyledItemDelegate):
-    """Numerical input field to use in a QTableView."""
-    def __init__(self, parent, fmt, minmax):
-        super().__init__(parent)
-        self._fmt = fmt
-        self._min_val, self._max_val = minmax
-
-    def createEditor(self, parent, option, index):
-        input = QDoubleSpinBox(parent)
-        input.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        if self._fmt[-1] == 'd':
-            input.setDecimals(0)
-        else:
-            input.setDecimals(int(self._fmt[1:-1]))
-        input.setMinimum(self._min_val)
-        input.setMaximum(self._max_val)
-        input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
-        input.setAccelerated(True)
-        return input
-
-    def setEditorData(self, editor, index):
-        val = index.model().data(index, Qt.ItemDataRole.EditRole)
-        editor.setValue(val)
-
-
-class ListTableModel(QAbstractTableModel):
-    """Table model for the List table."""
-    def __init__(self, data_changed_callback):
-        super().__init__()
-        self._data = [[]]
-        self._fmts = []
-        self._header = []
-        self._highlighted_row = None
-        self._data_changed_calledback = data_changed_callback
-
-    def set_params(self, data, fmts, header):
-        self._data = data
-        self._fmts = fmts
-        self._header = header
-        self.layoutChanged.emit()
-        index_1 = self.index(0, 0)
-        index_2 = self.index(len(self._data)-1, len(self._fmts)-1)
-        self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.DisplayRole])
-
-    def set_highlighted_row(self, row):
-        if self._highlighted_row is not None:
-            index_1 = self.index(self._highlighted_row, 0)
-            index_2 = self.index(self._highlighted_row, len(self._fmts)-1)
-            # Remove old highlight
-            self._highlighted_row = None
-            self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.BackgroundRole])
-        self._highlighted_row = row
-        if row is not None:
-            index_1 = self.index(row, 0)
-            index_2 = self.index(row, len(self._fmts)-1)
-            # Set new highlight
-            self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.BackgroundRole])
-
-    def cur_data(self):
-        return self._data
-
-    def data(self, index, role):
-        row = index.row()
-        column = index.column()
-        match role:
-            case Qt.ItemDataRole.TextAlignmentRole:
-                return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            case Qt.ItemDataRole.DisplayRole:
-                val = self._data[row][column]
-                return (('%'+self._fmts[column]) % val)
-            case Qt.ItemDataRole.EditRole:
-                return self._data[row][column]
-            case Qt.ItemDataRole.BackgroundRole:
-                if row == self._highlighted_row:
-                    return QColor('yellow')
-                return None
-        return None
-
-    def setData(self, index, val, role):
-        if role == Qt.ItemDataRole.EditRole:
-            row = index.row()
-            column = index.column()
-            val = float(val)
-            self._data[row][column] = val
-            self._data_changed_calledback(row, column, val)
-            return True
-        return False
-
-    def rowCount(self, index):
-        return len(self._data)
-
-    def columnCount(self, index):
-        return len(self._data[0])
-
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Orientation.Horizontal:
-            match role:
-                case Qt.ItemDataRole.TextAlignmentRole:
-                    return Qt.AlignmentFlag.AlignCenter
-                case Qt.ItemDataRole.DisplayRole:
-                    if 0 <= section < len(self._header):
-                        return self._header[section]
-                    return ''
-        else:
-            match role:
-                case Qt.ItemDataRole.TextAlignmentRole:
-                    return Qt.AlignmentFlag.AlignRight
-                case Qt.ItemDataRole.DisplayRole:
-                    return '%d' % (section+1)
-
-    def flags(self, index):
-        return (Qt.ItemFlag.ItemIsEnabled |
-                Qt.ItemFlag.ItemIsEditable)
 
 
 # This class encapsulates the main SDL configuration widget.
@@ -1660,11 +1546,17 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
     def _menu_do_about(self):
         """Show the About box."""
-        msg = """Siglent SDL1000-series instrument interface.
+        msg = f"""Siglent SDL1000-series instrument interface.
+
+Copyright 2022, Robert S. French.
 
 Supported instruments: SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E.
 
-Copyright 2022, Robert S. French"""
+Connected to {self._inst._resource_name}
+    {self._inst._model}
+    S/N {self._inst._serial_number}
+    FW {self._inst._firmware_version}"""
+
         QMessageBox.about(self, 'About', msg)
 
     def _menu_do_save_configuration(self):
@@ -2144,7 +2036,7 @@ Copyright 2022, Robert S. French"""
         self._update_load_state(state) # Also updates the button
 
     def _update_load_onoff_button(self, state=None):
-        """Update the style of the SHORT button based on current or given state."""
+        """Update the style of the LOAD button based on current or given state."""
         if state is None:
             state = self._param_state[':INPUT:STATE']
         bt = self._widget_registry['LoadONOFF']

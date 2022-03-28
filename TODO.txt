@@ -30,11 +30,9 @@ Siglent Technologies,SDS1204X-E,SDSMMEBQ4R5097,8.2.6.1.37R2
 
 ** SPD **
 
-Siglent Technologies,SPD3303X-E,SPD3XIDD5R6400,1.01.01.02.07R2,V3.0
-
-- Note no status available for P3
-- No way to track timer mode
-
+- Serial/parallel
+- Channel 3 indicator
+- Timer mode
 
 ** SDG **
 
@@ -63,4 +61,5 @@ Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
 - Virtual instruments that do math, generate curves, etc
 - Non-VISA mode with direct IP connection
 - Instruments sampling at different rates
-- Multi-threading for increased performance
+- Multi-threading for increased performance, or checking the event queue in
+between measurements

@@ -27,8 +27,8 @@ from PyQt6.QtWidgets import QApplication
 
 from main_window import MainWindow
 
-app = QApplication(sys.argv)
-main_window = MainWindow(app)
+app = QApplication(sys.argv)  # sys.argv is modified to remove Qt options
+main_window = MainWindow(app, sys.argv)
 main_window.show()
 
 app.exec()

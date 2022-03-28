@@ -104,7 +104,7 @@ class IPAddressDialog(QDialog):
 
 class MainWindow(QWidget):
     """The main window of the entire application."""
-    def __init__(self, app):
+    def __init__(self, app, argv):
         super().__init__()
         self.setWindowTitle('Siglent Instrument Controller')
 
@@ -131,8 +131,6 @@ class MainWindow(QWidget):
 
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
-        self._recent_resources.append('TCPIP::192.168.0.63')
-        self._recent_resources.append('TCPIP::192.168.0.64')
 
         self._plot_window_widgets = []
 
@@ -240,7 +238,12 @@ class MainWindow(QWidget):
         self._measurement_timer.start()
 
         self.show()
-        # self._menu_do_open_ip()
+
+        if len(argv) == 1:
+            self._menu_do_open_ip()
+        else:
+            for ip_address in argv[1:]:
+                self._open_ip(ip_address)
 
     def _on_interval_changed(self):
         """Handle a new value in the Measurement Interval input."""
@@ -270,7 +273,9 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event):
         # Close all the sub-windows, allowing them to shut down peacefully
-        for resource_name, inst, config_widget in self._open_resources:
+        # Closing a config window also removes it from the open resources list,
+        # so we have to make a copy of the list before iterating.
+        for resource_name, inst, config_widget in self._open_resources[:]:
             config_widget.close()
         for widget in self._plot_window_widgets:
             widget.close()
@@ -358,14 +363,18 @@ Copyright 2022, Robert S. French"""
         if not dialog.exec():
             return
         ip_address = dialog.get_ip_address()
-        # Reformat into a standard form, removing any zeroes
-        ip_address = '.'.join([('%d' % int(x)) for x in ip_address.split('.')])
-        self._open_resource(f'TCPIP::{ip_address}')
+        self._open_ip(ip_address)
 
     def _menu_do_open_recent(self, idx):
         """Open a resource from the Recent Resource list."""
         action = self.sender()
         self._open_resource(self._recent_resources[action.resource_number])
+
+    def _open_ip(self, ip_address):
+        """Open a device based on the given IP address."""
+        # Reformat into a standard form, removing any zeroes
+        ip_address = '.'.join([('%d' % int(x)) for x in ip_address.split('.')])
+        self._open_resource(f'TCPIP::{ip_address}')
 
     def _open_resource(self, resource_name):
         """Open a resource by name."""
@@ -384,15 +393,13 @@ Copyright 2022, Robert S. French"""
         except device.UnknownInstrumentType as ex:
             QMessageBox.critical(self, 'Error',
                                  f'Unknown instrument type "{ex.args[0]}"')
-            # inst = None
             return
 
         config_widget = None
-        if inst is not None:
-            # inst.set_debug(True)
-            inst.connect()
-            config_widget = inst.configure_widget(self)
-            config_widget.show()
+        inst.set_debug(True)
+        inst.connect()
+        config_widget = inst.configure_widget(self)
+        config_widget.show()
         self._open_resources.append((resource_name, inst, config_widget))
 
         # Update the recent resource list and put this resource on top
@@ -406,6 +413,7 @@ Copyright 2022, Robert S. French"""
         self._recent_resources = self._recent_resources[:self._max_recent_resources]
         self._refresh_menubar_device_recent_resources()
 
+        # Update the measurement list with newly available measurements
         num_existing = len(self._measurement_times)
         measurements = config_widget.update_measurements(read_inst=False)
         for meas_key, meas in measurements.items():
