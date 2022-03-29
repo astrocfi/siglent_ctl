@@ -37,7 +37,8 @@ import numpy as np
 import pyqtgraph as pg
 
 
-_TIME_DURATIONS = (('15 seconds', 15),
+_TIME_DURATIONS = (('All data', 0),
+                   ('15 seconds', 15),
                    ('1 min', 60),
                    ('5 min', 60*5),
                    ('15 min', 60*15),
@@ -425,6 +426,7 @@ class PlotXYWindow(QWidget):
         self._widget_x_axis_combo.clear()
         self._widget_x_axis_combo.addItem('Elapsed Time', userData='Elapsed Time')
         self._widget_x_axis_combo.addItem('Absolute Time', userData='Absolute Time')
+        self._widget_x_axis_combo.addItem('Sample Number', userData='Sample Number')
         for index, (key, name) in enumerate(self._main_window._measurement_names.items()):
             self._widget_x_axis_combo.addItem(name, userData=key)
             # Just always default to Elapsed Time
@@ -469,20 +471,20 @@ class PlotXYWindow(QWidget):
         x_min = start_time
         x_max = stop_time
         x_scale = 1
-        x_unit = 'sec'
         times = np.array(self._main_window._measurement_times)
 
         mask = None
-        if x_max - x_min < self._plot_duration:
-            # We have less data than the requested duration - no mask
-            x_max = x_min + self._plot_duration
-        else:
-            x_min = x_max - self._plot_duration
-            mask = times >= x_min
-            # Make sure that x_min corresponds to an actual data point
-            if np.any(mask):
-                x_min = times[mask][0]
+        if self._plot_duration > 0:
+            if x_max - x_min < self._plot_duration:
+                # We have less data than the requested duration - no mask
                 x_max = x_min + self._plot_duration
+            else:
+                x_min = x_max - self._plot_duration
+                mask = times >= x_min
+                # Make sure that x_min corresponds to an actual data point
+                if np.any(mask):
+                    x_min = times[mask][0]
+                    x_max = x_min + self._plot_duration
 
         scatter = False
         if mask is None:
@@ -491,6 +493,7 @@ class PlotXYWindow(QWidget):
             times_mask = times[mask]
         match self._plot_x_source:
             case 'Elapsed Time':
+                x_unit = 'sec'
                 if 60 < self._plot_duration <= 60*60*3:
                     x_unit = 'min'
                     x_scale = 60
@@ -509,6 +512,10 @@ class PlotXYWindow(QWidget):
             case 'Absolute Time':
                 # This will autoscale nicely
                 x_vals = times_mask
+            case 'Sample Number':
+                x_vals = np.arange(len(times_mask))
+                x_min = 0
+                x_max = len(times_mask)-1
             case _:
                 x_scale = None
                 scatter = True
@@ -578,7 +585,7 @@ class PlotXYWindow(QWidget):
         self._plot_viewboxes[0].enableAutoRange()
         self._plot_x_axis_item.setPen(self._plot_x_axis_color)
         self._plot_x_axis_item.setTextPen(self._plot_x_axis_color)
-        if self._plot_x_source in ('Elapsed Time', 'Absolute Time'):
+        if self._plot_x_source in ('Elapsed Time', 'Absolute Time', 'Sample Number'):
             self._master_plot_item.setLabel(axis='bottom', text=self._plot_x_source)
         else:
             m_name = self._main_window._measurement_names[self._plot_x_source]
