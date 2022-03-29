@@ -2,6 +2,7 @@
 
 - Tab focus?
 - Bug - scatter dot size is not defaulted correctly
+- Bug - sharing Y axis doesn't refresh the position of the Y axis label
 
 ** PyInstaller **
 

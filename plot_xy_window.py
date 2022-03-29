@@ -21,7 +21,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
-from PyQt6.QtWidgets import (QColorDialog,
+from PyQt6.QtWidgets import (QCheckBox,
+                             QColorDialog,
                              QComboBox,
                              QGridLayout,
                              QGroupBox,
@@ -98,6 +99,7 @@ class PlotXYWindow(QWidget):
         self._plot_x_source = 'Elapsed Time'
         self._plot_y_sources = [None] * self._max_plot_items
         self._plot_y_source_combos = []
+        self._plot_y_share_axes = False
         self._plot_duration = 60 # Default to "1 min"
 
         ### Layout the widgets
@@ -237,6 +239,14 @@ class PlotXYWindow(QWidget):
 
         layouth.addStretch()
 
+        # Collapse Y axis
+        cb = QCheckBox('Share Y Axes')
+        cb.setChecked(False)
+        layouth.addWidget(cb)
+        cb.clicked.connect(self._on_click_share_y_axes)
+
+        layouth.addStretch()
+
         button = QPushButton('Show All')
         layouth.addWidget(button)
         button.clicked.connect(self._on_click_all_measurements)
@@ -331,6 +341,12 @@ class PlotXYWindow(QWidget):
         combo = self.sender()
         source_num = combo.source_num
         self._plot_y_sources[source_num] = combo.itemData(sel)
+        self._update_axes()
+
+    def _on_click_share_y_axes(self):
+        """Handle click on Share Y Axes checkbox."""
+        cb = self.sender()
+        self._plot_y_share_axes = cb.isChecked()
         self._update_axes()
 
     def _on_click_all_measurements(self):
@@ -546,7 +562,6 @@ class PlotXYWindow(QWidget):
                 symbol_color = None
                 symbol = None
                 symbol_size = None
-            print(y_vals)
             if not np.all(np.isnan(x_vals)) and not np.all(np.isnan(y_vals)):
                 plot_item.setData(x_vals, y_vals, connect='finite',
                                   pen=pen, symbol=symbol, symbolSize=symbol_size,
@@ -569,6 +584,7 @@ class PlotXYWindow(QWidget):
 
     def _update_axes(self):
         """Update the plot axes and background color."""
+        # X axes
         self._plot_graphics_view_widget.setBackground(self._plot_background_color)
         if (self._plot_x_source == 'Absolute Time' and
                 self._plot_x_source != self._plot_x_source_prev):
@@ -592,16 +608,46 @@ class PlotXYWindow(QWidget):
             m_unit = self._main_window._measurement_units[self._plot_x_source]
             label = f'{m_name} ({m_unit})'
             self._master_plot_item.setLabel(axis='bottom', text=label)
+
+        # Y axes
+        used_units = {}
+        used_units_names = {}
         for plot_num in range(self._max_plot_items):
             plot_key = self._plot_y_sources[plot_num]
             axis_item = self._plot_y_axis_items[plot_num]
             if plot_key is None:
                 axis_item.hide()
                 continue
-            axis_item.show()
             m_name = self._main_window._measurement_names[plot_key]
             m_unit = self._main_window._measurement_units[plot_key]
+            if self._plot_y_share_axes and m_unit in used_units:
+                used_units[m_unit].append(plot_num)
+                used_units_names[m_unit].append(m_name)
+                axis_item.hide()
+                continue
+            used_units[m_unit] = [plot_num]
+            used_units_names[m_unit] = [m_name]
+            axis_item.show()
             axis_item.setLabel(m_name, units=m_unit) # Allow SI adjustment
             axis_item.setPen(self._plot_colors[plot_num])
             axis_item.setTextPen(self._plot_colors[plot_num])
+
+        # Handle shared Y axes
+        if self._plot_y_share_axes:
+            for i in range(self._max_plot_items):
+                self._plot_viewboxes[i].clear()
+            for unit in used_units:
+                shared_list = used_units[unit]
+                name_list = used_units_names[unit]
+                all_names = ' & '.join(name_list)
+                master = shared_list[0]
+                self._plot_y_axis_items[master].setLabel(all_names, units=unit)
+                for shared_num in shared_list:
+                    self._plot_viewboxes[master].addItem(self._plot_items[shared_num])
+        else:
+            # Reset back to normal
+            for i in range(self._max_plot_items):
+                self._plot_viewboxes[i].clear()
+                self._plot_viewboxes[i].addItem(self._plot_items[i])
+
         self.update()

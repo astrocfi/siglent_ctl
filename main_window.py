@@ -132,6 +132,7 @@ class MainWindow(QWidget):
         self._measurements = {}
         self._measurement_units = {}
         self._measurement_names = {}
+        self._measurement_last_good = True
 
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
@@ -531,10 +532,14 @@ class MainWindow(QWidget):
         # Check for the current trigger condition
         self._check_acquisition_ready()
         self._update_acquisition_indicator()
-        if not self._acquisition_ready:
-            return
-        if self._user_paused:
-            return
+        force_nan = False
+        if not self._acquisition_ready or self._user_paused:
+            if self._measurement_last_good:
+                # We need to insert a fake set of NaNs so there will be a break in the
+                # line graphs when plotting
+                force_nan = True
+            else:
+                return
         cur_time = time.time()
         self._measurement_times.append(cur_time)
         # Now go through and read all the cached measurements
@@ -545,14 +550,18 @@ class MainWindow(QWidget):
                     name = meas['name']
                     key = (inst.name, meas_key)
                     if key not in self._measurements:
-                        self._measurements[key] = ([np.nan] *
+                        self._measurements[key] = ([math.nan] *
                                                    len(self._measurement_times))
                         self._measurement_units[key] = meas['unit']
                         self._measurement_names[key] = f'{inst.name}: {name}'
-                    val = meas['val']
-                    if val is None:
+                    if force_nan:
                         val = math.nan
+                    else:
+                        val = meas['val']
+                        if val is None:
+                            val = math.nan
                     self._measurements[key].append(val)
+        self._measurement_last_good = not force_nan
         for plot_widget in self._plot_window_widgets:
             plot_widget.update()
 
@@ -629,7 +638,7 @@ Copyright 2022, Robert S. French"""
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (inst.name, meas_key)
-            self._measurements[key] = [None] * num_existing
+            self._measurements[key] = [math.nan] * num_existing
             self._measurement_units[key] = meas['unit']
             self._measurement_names[key] = f'{inst.name}: {name}'
         for plot_widget in self._plot_window_widgets:
