@@ -122,7 +122,8 @@ import pyqtgraph as pg
 from .device import Device4882
 from .config_widget_base import (ConfigureWidgetBase,
                                  DoubleSpinBoxDelegate,
-                                 ListTableModel)
+                                 ListTableModel,
+                                 PrintableTextDialog)
 
 
 # Style sheets for different operating systems
@@ -676,6 +677,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
         # The time the LOAD was turned on and off. Used for battery discharge logging.
         self._load_on_time = None
         self._load_off_time = None
+        self._show_batt_report = False
         self._reset_batt_log()
 
         # We need to call this later because some things called by __init__ rely
@@ -684,8 +686,9 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         # Timer used to follow along with List mode
         self._list_mode_timer = QTimer(self._main_window.app)
-        self._list_mode_timer.timeout.connect(self._update_list_table_heartbeat)
+        self._list_mode_timer.timeout.connect(self._update_heartbeat)
         self._list_mode_timer.setInterval(250)
+        self._list_mode_timer.start()
 
     ######################
     ### Public methods ###
@@ -969,7 +972,7 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ### Add to Device menu
 
-        action = QAction('Show &battery report...', self)
+        action = QAction('Show last &battery report...', self)
         action.triggered.connect(self._menu_do_device_batt_report)
         self._menubar_device.addAction(action)
 
@@ -1653,7 +1656,8 @@ Connected to {self._inst._resource_name}
         report = self._batt_log_report()
         if report is None:
             report = 'No current battery log.'
-        self._printable_text_dialog('Battery Discharge Report', report)
+        dialog = PrintableTextDialog('Battery Discharge Report', report)
+        dialog.exec()
 
     def _menu_do_view_parameters(self, state):
         """Toggle visibility of the parameters row."""
@@ -2128,7 +2132,6 @@ Connected to {self._inst._resource_name}
                 self._list_mode_running = True
                 self._list_mode_cur_step_start_time = time.time()
                 self._list_mode_stopping = False
-                self._list_mode_timer.start()
             else:
                 # We stop the progression AFTER the current step finished
                 self._list_mode_stopping = True
@@ -2172,6 +2175,7 @@ Connected to {self._inst._resource_name}
         """Handle clicking on the reset battery log button."""
         self._inst.write(':BATTERY:ADDCAP 0')
         self._reset_batt_log()
+        self._update_widgets()
 
     ################################
     ### Internal helper routines ###
@@ -2342,14 +2346,16 @@ Connected to {self._inst._resource_name}
             self._load_off_time = time.time()
             # Any change from one overall mode to another (e.g. leaving List mode
             # for any reason) will pass through here, so this takes care of stopping
-            # the timer in all those cases
-            self._list_mode_timer.stop()
+            # the update in all those cases
             self._list_mode_cur_step_num = None
             self._list_mode_stopping = False
             self._list_mode_running = False
             self._update_list_table_graph(list_step_only=True)
 
+        # When the load is turned off in battery mode, update the battery log and
+        # show the battery report.
         if not state and self._cur_overall_mode == 'Battery':
+            self._show_batt_report = True
             # For some reason when using Battery mode remotely, when the test is
             # complete (or aborted), the ADDCAP field is not automatically updated
             # like it is when you run a test from the front panel. So we do the
@@ -2404,11 +2410,13 @@ Connected to {self._inst._resource_name}
             self._update_widgets()
 
     def _update_short_state(self, state):
+        """Update the SHORT on/off internal state and update the instrument."""
         new_param_state = {':SHORT:STATE': state}
         self._update_param_state_and_inst(new_param_state)
         self._update_short_onoff_button(state)
 
     def _show_or_disable_widgets(self, widget_list):
+        """Show/enable or hide/disable widgets based on regular expressions."""
         for widget_re in widget_list:
             if widget_re[0] == '~':
                 # Hide unused widgets
@@ -2652,6 +2660,11 @@ Connected to {self._inst._resource_name}
         if self._cur_overall_mode == 'List':
             status_msg = """Turn on load. Use TRIG to start/pause list progression.
 List status tracking is an approximation."""
+        elif (self._cur_overall_mode == 'Battery' and
+              not self._param_state[':INPUT:STATE'] and
+              len(self._batt_log_start_times) > 0):
+            status_msg = """Warning: Data held from previous discharge.
+Reset Addl Cap & Test Log to start fresh."""
         if status_msg is None:
             self._statusbar.clearMessage()
         else:
@@ -2769,8 +2782,8 @@ List status tracking is an approximation."""
             table.model().set_highlighted_row(None)
             self._list_mode_step_plot.setData([], [])
 
-    def _update_list_table_heartbeat(self):
-        """Handle the rapid heartbeat when in List mode to update the highlighting."""
+    def _update_heartbeat(self):
+        """Handle the rapid heartbeat."""
         if self._list_mode_running:
             cur_time = time.time()
             delta = cur_time - self._list_mode_cur_step_start_time
@@ -2779,15 +2792,18 @@ List status tracking is an approximation."""
                 if self._list_mode_stopping:
                     self._list_mode_stopping = False
                     self._list_mode_running = False
-                    self._list_mode_timer.stop()
                 while delta >= self._list_mode_widths[self._list_mode_cur_step_num]:
                     delta -= self._list_mode_widths[self._list_mode_cur_step_num]
                     self._list_mode_cur_step_num = (
                         self._list_mode_cur_step_num+1) % self._param_state[':LIST:STEP']
                 self._list_mode_cur_step_start_time = cur_time - delta
             self._update_list_table_graph(list_step_only=True)
+        if self._show_batt_report:
+            self._show_batt_report = False
+            self._menu_do_device_batt_report()
 
     def _cur_mode_param_info(self, null_dynamic_mode_ok=False):
+        """Get the parameter info structure for the current mode."""
         if self._cur_overall_mode == 'Dynamic':
             if null_dynamic_mode_ok and self._cur_dynamic_mode is None:
                 # We fake this here for refresh(), where we don't know the dynamic
@@ -2801,12 +2817,14 @@ List status tracking is an approximation."""
         return _SDL_MODE_PARAMS[key]
 
     def _update_param_state_and_inst(self, new_param_state):
+        """Update the internal state and instrument based on partial param_state."""
         for key, data in new_param_state.items():
             if data != self._param_state[key]:
                 self._update_one_param_on_inst(key, data)
                 self._param_state[key] = data
 
     def _update_one_param_on_inst(self, key, data):
+        """Update the value for a single parameter on the instrument."""
         fmt_data = data
         if isinstance(data, bool):
             fmt_data = '1' if True else '0'
@@ -2824,6 +2842,7 @@ List status tracking is an approximation."""
         self._inst.write(f'{key} {fmt_data}')
 
     def _reset_batt_log(self):
+        """Reset the battery log."""
         self._batt_log_modes = []
         self._batt_log_stop_cond = []
         self._batt_log_start_times = []
@@ -2835,15 +2854,18 @@ List status tracking is an approximation."""
 
     @staticmethod
     def _time_to_str(t):
+        """Convert time in seconds to Y M D H:M:S."""
         return time.strftime('%Y %b %d %H:%M:%S', time.localtime(t))
 
     @staticmethod
     def _time_to_hms(t):
+        """Convert time in seconds to H:M:S."""
         m, s = divmod(t, 60)
         h, m = divmod(m, 60)
         return '%02d:%02d:%02d' % (h, m, s)
 
     def _batt_log_report(self):
+        """Generate the battery log report and return as a string."""
         n_entries = len(self._batt_log_start_times)
         if n_entries == 0:
             return None
@@ -2895,6 +2917,7 @@ List status tracking is an approximation."""
 
 
 class InstrumentSiglentSDL1000(Device4882):
+    """Controller for SDL1000-series devices."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._long_name = f'SDL1000 @ {self._resource_name}'
@@ -2905,6 +2928,7 @@ class InstrumentSiglentSDL1000(Device4882):
             self._name = 'SDL'
 
     def connect(self, *args, **kwargs):
+        """Connect to the instrument and set it to remote state."""
         super().connect(*args, **kwargs)
         idn = self.idn().split(',')
         if len(idn) != 4:
@@ -2922,44 +2946,57 @@ class InstrumentSiglentSDL1000(Device4882):
         self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
 
     def disconnect(self, *args, **kwargs):
+        """Disconnect from the instrument and turn off its remote state."""
         self.write(':SYST:REMOTE:STATE 0')
         super().disconnect(*args, **kwargs)
 
     def configure_widget(self, main_window):
+        """Return the configuration widget for this instrument."""
         return InstrumentSiglentSDL1000ConfigureWidget(main_window, self)
 
     def set_input_state(self, val):
+        """Turn the load on or off."""
         self._validator_1(val)
         self.write(f':INPUT:STATE {val}')
 
     def measure_voltage(self):
+        """Return the measured voltage as a float."""
         return float(self.query('MEAS:VOLT?'))
 
     def measure_current(self):
+        """Return the measured current as a float."""
         return float(self.query('MEAS:CURR?'))
 
     def measure_power(self):
+        """Return the measured power as a float."""
         return float(self.query('MEAS:POW?'))
 
     def measure_trise(self):
+        """Return the measured Trise as a float."""
         return float(self.query('TIME:TEST:RISE?'))
 
     def measure_tfall(self):
+        """Return the measured Tfall as a float."""
         return float(self.query('TIME:TEST:FALL?'))
 
     def measure_resistance(self):
+        """Return the measured resistance as a float."""
         return float(self.query('MEAS:RES?'))
 
     def measure_battery_time(self):
+        """Return the battery discharge time (in seconds) as a float."""
         return float(self.query(':BATTERY:DISCHA:TIMER?'))
 
     def measure_battery_capacity(self):
+        """Return the battery discharge capacity (in Ah) as a float."""
         return float(self.query(':BATTERY:DISCHA:CAP?')) / 1000
 
     def measure_battery_add_capacity(self):
+        """Return the battery discharge additional capacity (in Ah) as a float."""
         return float(self.query(':BATTERY:ADDCAP?')) / 1000
 
     def measure_vcpr(self):
+        """Return measured Voltage, Current, Power, and Resistance."""
         return (self.measure_voltage(),
                 self.measure_current(),
                 self.measure_power(),

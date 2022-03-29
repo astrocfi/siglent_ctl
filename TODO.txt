@@ -1,8 +1,6 @@
 - Current status:
 
 - Tab focus?
-- Bug - scatter dot size is not defaulted correctly
-- Bug - sharing Y axis doesn't refresh the position of the Y axis label
 
 ** PyInstaller **
 
@@ -12,28 +10,41 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** General **
 
-- Cleanup from _update_short_state()
-- Add print/save to _printable_text_dialog()
 - Add README file
 - Add error checking to opening resource and other VISA accesses
 - Add menu to change device short name
 
+** Acquisition **
+
+- Save to CSV
+- Load from CSV
+
+** XY Plotting **
+
+- Bug - scatter dot size is not defaulted correctly
+- Bug - sharing Y axis doesn't refresh the position of the Y axis label
+- Bug - If there's no plot on Plot #1, the X axis doesn't autoscale properly. To test
+  alternate between time and measurement X source.
+- Implement better way to handle breaks between time sequences instead of just inserting
+  a dummy NaN. Maybe separate lists of measurements that are then stitched together?
+  Right now if there's a segment with only one measurement it isn't drawn.
+
 ** SDL1000 **
 
-- Implement Program mode
-  - Follow along with the steps and highlight rows
-- Various other SDL features:
-  - Stop on fail
+Not implemented:
+  - Program mode (and stop on fail)
+
+** SPD **
+
+Not implemented:
+  - Load/save configuration
+  - Serial/parallel
+  - Channel 3 indicator
+  - Timer mode
 
 ** SDS **
 
 Siglent Technologies,SDS1204X-E,SDSMMEBQ4R5097,8.2.6.1.37R2
-
-** SPD **
-
-- Serial/parallel
-- Channel 3 indicator
-- Timer mode
 
 ** SDG **
 
@@ -43,24 +54,15 @@ Siglent Technologies,SDG1062X,SDG1XCAQ4R3005,1.01.01.33R1B6
 
 Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
 
-** Acquisition **
+** Histogram View **
 
-- Save to CSV
-- Load from CSV
-
-** Plotting **
-
-- Histogram View
-- Running statistics
+** Running Statistics **
 
 ** Measurement **
-
-- Mechanism to auto-start based on an instrument (e.g. load on)
 
 ** Misc **
 
 - Virtual instruments that do math, generate curves, etc
-- Non-VISA mode with direct IP connection
 - Instruments sampling at different rates
 - Multi-threading for increased performance, or checking the event queue in
 between measurements

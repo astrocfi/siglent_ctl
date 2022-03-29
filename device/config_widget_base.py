@@ -26,7 +26,9 @@ import platform
 
 from PyQt6.QtWidgets import (QApplication,
                              QDialog,
+                             QDialogButtonBox,
                              QDoubleSpinBox,
+                             QFileDialog,
                              QLayout,
                              QMenuBar,
                              QPlainTextEdit,
@@ -37,6 +39,7 @@ from PyQt6.QtWidgets import (QApplication,
                              QWidget)
 from PyQt6.QtCore import Qt, QAbstractTableModel, QTimer
 from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtPrintSupport import QPrintDialog
 
 class ConfigureWidgetBase(QWidget):
     def __init__(self, main_window, instrument):
@@ -119,21 +122,51 @@ class ConfigureWidgetBase(QWidget):
     def _menu_do_about(self):
         raise NotImplementedError
 
-    def _printable_text_dialog(self, title, contents):
-        dialog = QDialog(self)
-        dialog.setWindowTitle(title)
-        layoutv = QVBoxLayout()
-        dialog.setLayout(layoutv)
-        text = QPlainTextEdit()
-        layoutv.addWidget(text)
-        text.setPlainText(contents)
-        dialog.exec()
-
     def closeEvent(self, event):
         """Handle window close event by disconnecting from the instrument."""
         self._inst.disconnect()
         self._main_window._device_window_closed(self._inst)
 
+
+class PrintableTextDialog(QDialog):
+    """Dialog that can be saved and printed."""
+    def __init__(self, title, contents, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layoutv = QVBoxLayout()
+        self.setLayout(layoutv)
+        self._text_widget = QPlainTextEdit()
+        layoutv.addWidget(self._text_widget)
+        self._text_widget.setPlainText(contents)
+        self._button_box = QDialogButtonBox()
+        self._button_box.accepted.connect(self.accept)
+        self._button_box.rejected.connect(self.reject)
+        self._close_button = self._button_box.addButton(
+            'Close', QDialogButtonBox.ButtonRole.RejectRole)
+        self._print_button = self._button_box.addButton(
+            'Print', QDialogButtonBox.ButtonRole.ActionRole)
+        self._save_button = self._button_box.addButton(
+            'Save', QDialogButtonBox.ButtonRole.ActionRole)
+        self._print_button.clicked.connect(self._on_print)
+        self._save_button.clicked.connect(self._on_save)
+        layoutv.addWidget(self._button_box)
+
+    def _on_print(self):
+        """Handle PRINT button."""
+        pr = QPrintDialog()
+        if pr.exec():
+            self._text_widget.print(pr.printer())
+
+    def _on_save(self):
+        """Handle SAVE button."""
+        fn = QFileDialog.getSaveFileName(self, caption='Save Report',
+                                         filter='All (*.*);;Text (*.txt);;Log (*.log)',
+                                         initialFilter='Text (*.txt)')
+        fn = fn[0]
+        if not fn:
+            return
+        with open(fn, 'w') as fp:
+            fp.write(self._text_widget.toPlainText())
 
 class DoubleSpinBoxDelegate(QStyledItemDelegate):
     """Numerical input field to use in a QTableView."""
@@ -281,6 +314,7 @@ class LongClickButton(QPushButton):
         # executed in some scenarios, for example when QMessageBox is called.
         self._timer.stop()
         self._long_click_handler(self)
+
 
 class DoubleSpeedSpinBox(QDoubleSpinBox):
     """DoubleSpinBox that supports click, Ctrl+click, and Shift+click steps.
