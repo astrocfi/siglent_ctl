@@ -36,7 +36,7 @@ from PyQt6.QtWidgets import (QApplication,
                              QVBoxLayout,
                              QWidget)
 from PyQt6.QtCore import Qt, QAbstractTableModel, QTimer
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QColor
 
 class ConfigureWidgetBase(QWidget):
     def __init__(self, main_window, instrument):

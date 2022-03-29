@@ -222,23 +222,33 @@ class MainWindow(QWidget):
         layouth2 = QHBoxLayout()
         layoutv2.addLayout(layouth2)
         button = QPushButton('\u23F5 Record')
-        ss = """min-width: 4.5em; max-width: 4.5em; min-height: 1.5em; max-height: 1.5em;
-                border-radius: 0.5em; border: 2px solid black; font-weight: bold;
-                background-color: #80ff40;"""
+        ss = """QPushButton { min-width: 4.5em; max-width: 4.5em;
+                              min-height: 1.5em; max-height: 1.5em;
+                              border-radius: 0.5em; border: 2px solid black;
+                              font-weight: bold;
+                              background-color: #80ff40; }
+                QPushButton::pressed { border: 3px solid black; }"""
         button.setStyleSheet(ss)
         self._widget_registry['GoButton'] = button
         button.clicked.connect(self._on_click_go)
         layouth2.addWidget(button)
         button = QPushButton('\u23F8 Pause')
-        ss = """min-width: 4.5em; max-width: 4.5em; min-height: 1.5em; max-height: 1.5em;
-                border-radius: 0.5em; border: 2px solid black; font-weight: bold;
-                background-color: #ff8080;"""
+        ss = """QPushButton { min-width: 4.5em; max-width: 4.5em;
+                              min-height: 1.5em; max-height: 1.5em;
+                              border-radius: 0.5em; border: 2px solid black;
+                              font-weight: bold;
+                              background-color: #ff8080; }
+                QPushButton::pressed { border: 3px solid black; }"""
         button.setStyleSheet(ss)
         self._widget_registry['PauseButton'] = button
         button.clicked.connect(self._on_click_pause)
         layouth2.addWidget(button)
         button = QPushButton('\u26A0 Erase All Data \u26A0')
-        ss = """background: black; color: red;"""
+        ss = """QPushButton { min-width: 7.5em; max-width: 7.5em;
+                              min-height: 1.5em; max-height: 1.5em;
+                              border-radius: 0.5em; border: 2px solid red;
+                              background: black; color: red; }
+                QPushButton::pressed { border: 3px solid red; }"""
         button.setStyleSheet(ss)
         layouth2.addStretch()
         layouth2.addWidget(button)
@@ -289,9 +299,11 @@ class MainWindow(QWidget):
         layoutg.addLayout(layouth, 3, 1)
         combo = QComboBox()
         combo.addItem('Less than', userData='<')
-        combo.addItem('Less than or equal', userData='<=')
+        combo.addItem('Less than or equal to', userData='<=')
         combo.addItem('Greater than', userData='>')
-        combo.addItem('Greater than or equal', userData='<')
+        combo.addItem('Greater than or equal to', userData='<')
+        combo.addItem('Equal to', userData='=')
+        combo.addItem('Not equal to', userData='!=')
         layouth.addWidget(combo)
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.activated.connect(self._on_select_meas_value_op)
@@ -304,6 +316,7 @@ class MainWindow(QWidget):
         input.setAlignment(Qt.AlignmentFlag.AlignRight)
         layouth.addWidget(input)
         input.setRange(-1000000, 1000000)
+        input.setDecimals(3)
         input.setSingleStep(1)
         input.editingFinished.connect(self._on_value_changed_meas_comp)
         self._widget_registry['MeasurementValueComp'] = input
@@ -376,8 +389,6 @@ class MainWindow(QWidget):
         self._measurement_state_source = combo.itemData(sel)
         self._check_acquisition_ready()
         self._update_widgets()
-        print('S', self._measurement_state_source, self._measurement_value_source,
-              self._measurement_value_op, self._measurement_value_comp)
 
     def _on_select_meas_value_source(self, sel):
         """Handle Measurement Value source selection."""
@@ -385,8 +396,6 @@ class MainWindow(QWidget):
         self._measurement_value_source = combo.itemData(sel)
         self._check_acquisition_ready()
         self._update_widgets()
-        print('S', self._measurement_state_source, self._measurement_value_source,
-              self._measurement_value_op, self._measurement_value_comp)
 
     def _on_select_meas_value_op(self, sel):
         """Handle Measurement Value operator selection."""
@@ -394,8 +403,6 @@ class MainWindow(QWidget):
         self._measurement_value_op = combo.itemData(sel)
         self._check_acquisition_ready()
         self._update_widgets()
-        print('S', self._measurement_state_source, self._measurement_value_source,
-              self._measurement_value_op, self._measurement_value_comp)
 
     def _on_value_changed_meas_comp(self):
         """Handle Measurement Value comparison value changed."""
@@ -403,8 +410,6 @@ class MainWindow(QWidget):
         self._measurement_value_comp = input.value()
         self._check_acquisition_ready()
         self._update_widgets()
-        print('S', self._measurement_state_source, self._measurement_value_source,
-              self._measurement_value_op, self._measurement_value_comp)
 
     def _on_click_go(self):
         """Handle Go button."""
@@ -471,14 +476,46 @@ class MainWindow(QWidget):
             case 'State':
                 for resource_name, inst, config_widget in self._open_resources:
                     if config_widget is not None:
-                        for index, trigger in enumerate(
-                                config_widget.get_triggers().values()):
-                            key = (inst.name, trigger['name'])
-                            print(key, self._measurement_state_source)
+                        for trigger_key, trigger in config_widget.get_triggers().items():
+                            key = (inst.name, trigger_key)
                             if key == self._measurement_state_source:
                                 self._acquisition_ready = trigger['val']
                                 return
                 assert False, 'State source no longer in open resources'
+            case 'Value':
+                self._acquisition_ready = False
+                src = self._measurement_value_source
+                if src not in self._measurements:
+                    return
+                for resource_name, inst, config_widget in self._open_resources:
+                    if config_widget is not None:
+                        if src[0] == inst.name:
+                            break
+                else:
+                    assert False, self._measurement_value_source
+                meas = config_widget.get_measurements()
+                val = meas[src[1]]['val']
+                if val is None:
+                    return
+                comp = self._measurement_value_comp
+                match self._measurement_value_op:
+                    case '<':
+                        self._acquisition_ready = val < comp
+                    case '<=':
+                        self._acquisition_ready = val <= comp
+                    case '>':
+                        self._acquisition_ready = val > comp
+                    case '>=':
+                        self._acquisition_ready = val >= comp
+                    case '=':
+                        self._acquisition_ready = val == comp
+                    case '!=':
+                        self._acquisition_ready = val != comp
+                    case _:
+                        assert False, self._measurement_value_op
+                return
+            case _:
+                assert False, self._acquisition_mode
 
     def _update(self):
         """Query all instruments and update all measurements and display widgets."""
@@ -496,17 +533,17 @@ class MainWindow(QWidget):
         self._update_acquisition_indicator()
         if not self._acquisition_ready:
             return
-        # Now go through and read all the cached measurements
         if self._user_paused:
             return
         cur_time = time.time()
         self._measurement_times.append(cur_time)
+        # Now go through and read all the cached measurements
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
                 measurements = config_widget.get_measurements()
                 for meas_key, meas in measurements.items():
                     name = meas['name']
-                    key = (inst.name, name)
+                    key = (inst.name, meas_key)
                     if key not in self._measurements:
                         self._measurements[key] = ([np.nan] *
                                                    len(self._measurement_times))
@@ -591,7 +628,7 @@ Copyright 2022, Robert S. French"""
         measurements, _ = config_widget.update_measurements_and_triggers(read_inst=False)
         for meas_key, meas in measurements.items():
             name = meas['name']
-            key = (inst.name, name)
+            key = (inst.name, meas_key)
             self._measurements[key] = [None] * num_existing
             self._measurement_units[key] = meas['unit']
             self._measurement_names[key] = f'{inst.name}: {name}'
@@ -624,6 +661,13 @@ Copyright 2022, Robert S. French"""
         for plot_widget in self._plot_window_widgets:
             plot_widget.measurements_changed()
 
+        if (self._measurement_state_source is not None and
+            self._measurement_state_source[0] == inst.name):
+            self._measurement_state_source = None
+        if (self._measurement_value_source is not None and
+            self._measurement_value_source[0] == inst.name):
+            self._measurement_value_source = None
+
         self._update_widgets()
 
     def _update_widgets(self):
@@ -648,29 +692,27 @@ Copyright 2022, Robert S. French"""
         measurement_index = 0
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
-                for trigger in config_widget.get_triggers().values():
+                for trigger_key, trigger in config_widget.get_triggers().items():
                     trig_name = trigger['name']
                     name = f'{inst.name}: {trig_name}'
-                    key = (inst.name, trig_name)
+                    key = (inst.name, trigger_key)
                     state_combo.addItem(name, userData=key)
                     if self._measurement_state_source is None:
                         self._measurement_state_source = key
                     if key == self._measurement_state_source:
                         trigger_found = trigger_index
                     trigger_index += 1
-                for measurement in config_widget.get_measurements().values():
+                for meas_key, measurement in config_widget.get_measurements().items():
                     meas_name = measurement['name']
                     name = f'{inst.name}: {meas_name}'
-                    key = (inst.name, meas_name)
+                    key = (inst.name, meas_key)
                     val_src_combo.addItem(name, userData=key)
                     if self._measurement_value_source is None:
                         self._measurement_value_source = key
                     if key == self._measurement_value_source:
                         val_src_found = measurement_index
                     measurement_index += 1
-        print('Trigger', trigger_found)
         state_combo.setCurrentIndex(trigger_found)
-        print('Val src', val_src_found)
         val_src_combo.setCurrentIndex(val_src_found)
 
         val_op_combo.setCurrentIndex(val_op_combo.findData(self._measurement_value_op))
@@ -680,9 +722,6 @@ Copyright 2022, Robert S. French"""
         val_src_combo.setEnabled(True)
         val_op_combo.setEnabled(True)
         val_comp.setEnabled(True)
-
-        print('U', self._measurement_state_source, self._measurement_value_source,
-              self._measurement_value_op, self._measurement_value_comp)
 
         self._update_pause_go_buttons()
         self._update_acquisition_indicator()

@@ -539,6 +539,7 @@ class PlotXYWindow(QWidget):
                 symbol_color = None
                 symbol = None
                 symbol_size = None
+            print(y_vals)
             if not np.all(np.isnan(x_vals)) and not np.all(np.isnan(y_vals)):
                 plot_item.setData(x_vals, y_vals, connect='finite',
                                   pen=pen, symbol=symbol, symbolSize=symbol_size,
