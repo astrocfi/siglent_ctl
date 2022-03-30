@@ -289,6 +289,19 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 
         ### Add to Device menu
 
+        action = QAction('&Independent', self, checkable=True)
+        self._widget_registry['IndependentAction'] = action
+        action.triggered.connect(self._menu_do_device_independent)
+        self._menubar_device.addAction(action)
+        action = QAction('&Series', self, checkable=True)
+        self._widget_registry['SeriesAction'] = action
+        action.triggered.connect(self._menu_do_device_series)
+        self._menubar_device.addAction(action)
+        action = QAction('&Parallel', self, checkable=True)
+        self._widget_registry['ParallelAction'] = action
+        action.triggered.connect(self._menu_do_device_parallel)
+        self._menubar_device.addAction(action)
+
         ### Add to View menu
 
         action = QAction('&Min/Max Limits', self, checkable=True)
@@ -324,8 +337,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         main_horiz_layout = QHBoxLayout()
         main_vert_layout.addLayout(main_horiz_layout)
         frame = self._init_widgets_add_channel(0)
+        self._widget_registry['FrameCH1'] = frame
         main_horiz_layout.addWidget(frame)
         frame = self._init_widgets_add_channel(1)
+        self._widget_registry['FrameCH2'] = frame
         main_horiz_layout.addWidget(frame)
 
         self.show()
@@ -340,7 +355,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         else:
             bgcolor = '#ffff20'
         ss = f"""\QGroupBox::title {{ subcontrol-position: top center;
-                                     background-color: {bgcolor}; color: black; }}"""
+                                      background-color: {bgcolor}; color: black; }}"""
         frame.setStyleSheet(ss)
 
         vert_layout = QVBoxLayout(frame)
@@ -538,6 +553,13 @@ Connected to {self._inst._resource_name}
             for num in range(len(self._presets[ch])):
                 v, c = self._presets[ch][num]
                 cfg[f'CH{ch+1}:PRESET {num+1}'] = f'{v:.3f},{c:.3f}'
+            for mm in ('Min', 'Max'):
+                for cv in ('V', 'I'):
+                    key1 = f'{mm}{ch}{cv}'
+                    key2 = f'{mm}{ch+1}{cv}'
+                    v = self._widget_registry[key1].value()
+                    cfg[key2] = f'{v:.3f}'
+
         match self._psu_mode:
             case 'I':
                 cfg['OUTPUT:TRACK'] = 0
@@ -562,9 +584,26 @@ Connected to {self._inst._resource_name}
         with open(fn, 'r') as fp:
             cfg = json.load(fp)
         # Be safe by turning off the outputs before changing values
+        match cfg['OUTPUT:TRACK']:
+            case 0:
+                self._psu_mode = 'I'
+                self._inst.write('OUTPUT:TRACK 0')
+            case 1:
+                self._psu_mode = 'S'
+                self._inst.write('OUTPUT:TRACK 1')
+            case 2:
+                self._psu_mode = 'P'
+                self._inst.write('OUTPUT:TRACK 2')
+            case _:
+                assert False, cfg['OUTPUT:TRACK']
         self._update_output_state(0, False)
-        self._update_output_state(1, False)
-        for ch in range(2):
+        max_ch = 2
+        if self._psu_mode == 'I':
+            max_ch = 2
+            self._update_output_state(1, False)
+        else:
+            max_ch = 1
+        for ch in range(max_ch):
             key = f'CH{ch+1}:VOLT'
             volt = cfg[key]
             self._psu_voltage[ch] = float(volt)
@@ -584,19 +623,44 @@ Connected to {self._inst._resource_name}
                 val = cfg[key]
                 v, c = [float(x) for x in val.split(',')]
                 self._presets[ch][num] = [v, c]
-        match cfg['OUTPUT:TRACK']:
-            case 0:
-                self._psu_mode = 'I'
-                self._inst.write('OUTPUT:TRACK 0')
-            case 1:
-                self._psu_mode = 'S'
-                self._inst.write('OUTPUT:TRACK 1')
-            case 2:
-                self._psu_mode = 'P'
-                self._inst.write('OUTPUT:TRACK 2')
-            case _:
-                assert False, cfg['OUTPUT:TRACK']
+            for mm in ('Min', 'Max'):
+                for cv in ('V', 'I'):
+                    key1 = f'{mm}{ch}{cv}'
+                    key2 = f'{mm}{ch+1}{cv}'
+                    self._widget_registry[key1].setValue(float(cfg[key2]))
+        self._update_widgets()
 
+    def _menu_do_device_independent(self, state):
+        """Handle Device Independent menu."""
+        self._widget_registry['IndependentAction'].setChecked(True)
+        self._widget_registry['SeriesAction'].setChecked(False)
+        self._widget_registry['ParallelAction'].setChecked(False)
+        self._psu_mode = 'I'
+        self._psu_on_off[0] = False
+        self._psu_on_off[1] = False
+        self._inst.write('OUTPUT:TRACK 0') # Turns off the outputs
+        self._update_widgets()
+
+    def _menu_do_device_series(self, state):
+        """Handle Device Series menu."""
+        self._widget_registry['IndependentAction'].setChecked(False)
+        self._widget_registry['SeriesAction'].setChecked(True)
+        self._widget_registry['ParallelAction'].setChecked(False)
+        self._psu_mode = 'S'
+        self._psu_on_off[0] = False
+        self._psu_on_off[1] = False
+        self._inst.write('OUTPUT:TRACK 1') # Turns off the outputs
+        self._update_widgets()
+
+    def _menu_do_device_parallel(self, state):
+        """Handle Device Parallel menu."""
+        self._widget_registry['IndependentAction'].setChecked(False)
+        self._widget_registry['SeriesAction'].setChecked(False)
+        self._widget_registry['ParallelAction'].setChecked(True)
+        self._psu_mode = 'P'
+        self._psu_on_off[0] = False
+        self._psu_on_off[1] = False
+        self._inst.write('OUTPUT:TRACK 2') # Turns off the outputs
         self._update_widgets()
 
     def _menu_do_view_minmax_limits(self, state):
@@ -685,10 +749,16 @@ Connected to {self._inst._resource_name}
                     if self._psu_voltage[ch] != val:
                         self._inst.write(f'CH{ch+1}:VOLT {val:.3f}')
                         self._psu_voltage[ch] = val
+                        if self._psu_mode != 'I':
+                            assert ch == 0
+                            self._psu_voltage[1] = val
                 case 'I':
                     if self._psu_current[ch] != val:
                         self._inst.write(f'CH{ch+1}:CURR {val:.3f}')
                         self._psu_current[ch] = val
+                        if self._psu_mode != 'I':
+                            assert ch == 0
+                            self._psu_current[1] = val
                 case _:
                     assert False
 
@@ -699,11 +769,12 @@ Connected to {self._inst._resource_name}
         volt, curr = self._presets[ch][preset_num]
         self._psu_voltage[ch] = volt
         self._psu_current[ch] = curr
-        self._widget_registry[f'SetPoint{ch}V'].setValue(volt)
-        self._widget_registry[f'SetPoint{ch}I'].setValue(curr)
+        # This will take care of min/max, which might change the values
+        self._update_widgets()
+        volt = self._widget_registry[f'SetPoint{ch}V'].value()
+        curr = self._widget_registry[f'SetPoint{ch}I'].value()
         self._inst.write(f'CH{ch+1}:VOLT {volt:.3f}')
         self._inst.write(f'CH{ch+1}:CURR {curr:.3f}')
-        self._update_widgets()
 
     def _on_preset_long_click(self, button):
         ch, preset_num = button.wid
@@ -732,6 +803,11 @@ Connected to {self._inst._resource_name}
         sender = self.sender()
         ch = sender.wid
         state = not self._psu_on_off[ch]
+        if self._psu_mode != 'I':
+            # The other channel will slave on the instrument, but we need to update
+            # our internal state - before _update_output_state updates the widgets.
+            assert ch == 0
+            self._psu_on_off[1] = state
         self._update_output_state(ch, state)
 
     def _update_output_on_off_buttons(self):
@@ -790,6 +866,15 @@ Connected to {self._inst._resource_name}
         # work.
         self._disable_callbacks = True
 
+        if self._psu_mode != 'I':
+            # Slave CH2 to CH1 when in series or parallel
+            for mm in ('Min', 'Max'):
+                for cv in ('V', 'I'):
+                    self._widget_registry[f'{mm}1{cv}'].setValue(
+                        self._widget_registry[f'{mm}0{cv}'].value())
+            self._psu_voltage[1] = self._psu_voltage[0]
+            self._psu_current[1] = self._psu_current[0]
+
         for ch in range(2):
             self._widget_registry[f'SetPoint{ch}V'].setValue(self._psu_voltage[ch])
             self._widget_registry[f'SetPoint{ch}I'].setValue(self._psu_current[ch])
@@ -800,6 +885,26 @@ Connected to {self._inst._resource_name}
 
         # Update the buttons
         self._update_output_on_off_buttons()
+
+        # Update the mode menus
+        self._widget_registry['IndependentAction'].setChecked(self._psu_mode == 'I')
+        self._widget_registry['SeriesAction'].setChecked(self._psu_mode == 'S')
+        self._widget_registry['ParallelAction'].setChecked(self._psu_mode == 'P')
+        match self._psu_mode:
+            case 'I':
+                self._widget_registry['FrameCH1'].setTitle('Channel 1')
+                self._widget_registry['FrameCH2'].setTitle('Channel 2')
+                self._widget_registry['FrameCH2'].setEnabled(True)
+            case 'S':
+                self._widget_registry['FrameCH1'].setTitle('Series Mode')
+                self._widget_registry['FrameCH2'].setTitle('Series Mode')
+                self._widget_registry['FrameCH2'].setEnabled(False)
+            case 'P':
+                self._widget_registry['FrameCH1'].setTitle('Parallel Mode')
+                self._widget_registry['FrameCH2'].setTitle('Parallel Mode')
+                self._widget_registry['FrameCH2'].setEnabled(False)
+            case _:
+                assert False, self._psu_mode
 
         # Maybe update the List table
         # if self._cur_overall_mode == 'List':

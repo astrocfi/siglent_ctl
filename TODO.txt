@@ -34,7 +34,6 @@ Not implemented:
 ** SPD **
 
 Not implemented:
-  - Serial/parallel
   - Channel 3 indicator
   - Timer mode
 
