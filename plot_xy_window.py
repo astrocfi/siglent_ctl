@@ -91,10 +91,14 @@ class PlotXYWindow(QWidget):
         self._plot_viewboxes = []
         self._plot_colors = ['#FF0000', '#FFFF00', '#00FF00', '#00FFFF', '#3030FF',
                              '#FF00FF', '#FF8000', '#C0C0C0']
-        self._plot_widths = [1] * self._max_plot_items
+        self._plot_line_widths = [1] * self._max_plot_items
+        self._plot_line_width_combos = []
         self._plot_line_styles = [Qt.PenStyle.SolidLine] * self._max_plot_items
+        self._plot_line_style_combos = []
         self._plot_marker_sizes = [3] * self._max_plot_items
+        self._plot_marker_size_combos = []
         self._plot_marker_styles = ['o'] * self._max_plot_items
+        self._plot_marker_style_combos = []
         self._plot_x_source_prev = None
         self._plot_x_source = 'Elapsed Time'
         self._plot_y_sources = [None] * self._max_plot_items
@@ -300,12 +304,14 @@ class PlotXYWindow(QWidget):
             for pix in range(1, 9):
                 combo.addItem(str(pix), userData=pix)
             combo.activated.connect(self._on_y_line_width_selection)
+            self._plot_line_width_combos.append(combo)
             combo = QComboBox()
             combo.source_num = source_num
             layoutg2.addWidget(combo, 0, 2)
             for num, (name, style) in enumerate(_LINE_STYLES):
-                combo.addItem(name, userData=num)
+                combo.addItem(name, userData=style)
             combo.activated.connect(self._on_y_line_style_selection)
+            self._plot_line_style_combos.append(combo)
 
             layoutg2.addWidget(QLabel('Scatter:'), 1, 0)
             combo = QComboBox()
@@ -314,12 +320,14 @@ class PlotXYWindow(QWidget):
             for pix in range(1, 9):
                 combo.addItem(str(pix), userData=pix)
             combo.activated.connect(self._on_y_marker_size_selection)
+            self._plot_marker_size_combos.append(combo)
             combo = QComboBox()
             combo.source_num = source_num
             layoutg2.addWidget(combo, 1, 2)
             for num, (name, style) in enumerate(_MARKER_SYMBOLS):
-                combo.addItem(name, userData=num)
+                combo.addItem(name, userData=style)
             combo.activated.connect(self._on_y_marker_style_selection)
+            self._plot_marker_style_combos.append(combo)
 
         self._update_widgets()
 
@@ -403,15 +411,14 @@ class PlotXYWindow(QWidget):
         combo = self.sender()
         source_num = combo.source_num
         width = combo.itemData(sel)
-        self._plot_widths[source_num] = width
+        self._plot_line_widths[source_num] = width
         self.update()
 
     def _on_y_line_style_selection(self, sel):
         """Handle line style selector of a Y source."""
         combo = self.sender()
         source_num = combo.source_num
-        style = combo.itemData(sel)
-        self._plot_line_styles[source_num] = _LINE_STYLES[style][1]
+        self._plot_line_styles[source_num] = combo.itemData(sel)
         self.update()
 
     def _on_y_marker_size_selection(self, sel):
@@ -426,8 +433,7 @@ class PlotXYWindow(QWidget):
         """Handle marker style selector of a Y source."""
         combo = self.sender()
         source_num = combo.source_num
-        style = combo.itemData(sel)
-        self._plot_marker_styles[source_num] = _MARKER_SYMBOLS[style][1]
+        self._plot_marker_styles[source_num] = combo.itemData(sel)
         self.update()
 
     def _update_widgets(self):
@@ -449,7 +455,7 @@ class PlotXYWindow(QWidget):
             # if key == self._plot_x_source:
             #     self._widget_x_axis_combo.setCurrentIndex(index)
 
-        # Y axis selections
+        # Y axis source selections
         for source_num, combo in enumerate(self._plot_y_source_combos):
             combo.clear()
             combo.addItem('Not used', userData=None)
@@ -458,6 +464,27 @@ class PlotXYWindow(QWidget):
                 combo.addItem(name, userData=key)
                 if key == self._plot_y_sources[source_num]:
                     combo.setCurrentIndex(index+1) # Account for "Not used"
+
+        # Y axis line widths, style, marker size, style
+        for plot_num, combo in enumerate(self._plot_line_width_combos):
+            combo.setCurrentIndex(combo.findData(self._plot_line_widths[plot_num]))
+        for plot_num, combo in enumerate(self._plot_line_style_combos):
+            combo.setCurrentIndex(combo.findData(self._plot_line_styles[plot_num]))
+        for plot_num, combo in enumerate(self._plot_marker_size_combos):
+            combo.setCurrentIndex(combo.findData(self._plot_marker_sizes[plot_num]))
+        for plot_num, combo in enumerate(self._plot_marker_style_combos):
+            combo.setCurrentIndex(combo.findData(self._plot_marker_styles[plot_num]))
+
+        for source_num, combo in enumerate(self._plot_y_source_combos):
+            combo.clear()
+            combo.addItem('Not used', userData=None)
+            for index, (key, name) in enumerate(
+                    self._main_window._measurement_names.items()):
+                combo.addItem(name, userData=key)
+                if key == self._plot_y_sources[source_num]:
+                    combo.setCurrentIndex(index+1) # Account for "Not used"
+
+
 
     def _on_update_views(self):
         """Resize the plot."""
@@ -538,8 +565,20 @@ class PlotXYWindow(QWidget):
                 x_vals = np.array(self._main_window._measurements[self._plot_x_source])
                 if mask is not None:
                     x_vals = x_vals[mask]
-        if x_scale is not None:
-            self._plot_viewboxes[0].setRange(xRange=(x_min, x_max), padding=0)
+                finite_x_vals = x_vals[~np.isnan(x_vals)]
+                if len(finite_x_vals) == 0:
+                    x_min = 0
+                    x_max = 1
+                else:
+                    x_min = np.min(finite_x_vals)
+                    x_max = np.max(finite_x_vals)
+                    padding = (x_max-x_min)*0.02
+                    x_min -= padding
+                    x_max += padding
+        if x_min == x_max:
+            x_min -= 1
+            x_max += 1
+        self._plot_viewboxes[0].setRange(xRange=(x_min, x_max), padding=0)
 
         for plot_num in range(self._max_plot_items):
             plot_key = self._plot_y_sources[plot_num]
@@ -557,7 +596,7 @@ class PlotXYWindow(QWidget):
                 symbol_size = self._plot_marker_sizes[plot_num]*3
             else:
                 pen = pg.mkPen(QColor(self._plot_colors[plot_num]),
-                               width=self._plot_widths[plot_num],
+                               width=self._plot_line_widths[plot_num],
                                style=self._plot_line_styles[plot_num])
                 symbol_color = None
                 symbol = None
@@ -596,9 +635,7 @@ class PlotXYWindow(QWidget):
               self._plot_x_axis_item is None):
             # Absolute -> Not Absolute
             self._plot_x_axis_item = pg.AxisItem(orientation='bottom')
-            self._plot_viewboxes[0].enableAutoRange()
             self._master_plot_item.setAxisItems({'bottom': self._plot_x_axis_item})
-        self._plot_viewboxes[0].enableAutoRange()
         self._plot_x_axis_item.setPen(self._plot_x_axis_color)
         self._plot_x_axis_item.setTextPen(self._plot_x_axis_color)
         if self._plot_x_source in ('Elapsed Time', 'Absolute Time', 'Sample Number'):
@@ -613,6 +650,8 @@ class PlotXYWindow(QWidget):
         used_units = {}
         used_units_names = {}
         for plot_num in range(self._max_plot_items):
+            self._plot_viewboxes[plot_num].enableAutoRange(axis=pg.ViewBox.YAxis,
+                                                           enable=True)
             plot_key = self._plot_y_sources[plot_num]
             axis_item = self._plot_y_axis_items[plot_num]
             if plot_key is None:

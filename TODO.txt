@@ -23,8 +23,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 - Bug - scatter dot size is not defaulted correctly
 - Bug - sharing Y axis doesn't refresh the position of the Y axis label
-- Bug - If there's no plot on Plot #1, the X axis doesn't autoscale properly. To test
-  alternate between time and measurement X source.
 - Implement better way to handle breaks between time sequences instead of just inserting
   a dummy NaN. Maybe separate lists of measurements that are then stitched together?
   Right now if there's a segment with only one measurement it isn't drawn.
