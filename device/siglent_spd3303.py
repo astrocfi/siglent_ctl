@@ -521,26 +521,83 @@ Connected to {self._inst._resource_name}
     def _menu_do_save_configuration(self):
         """Save the current configuration to a file."""
         fn = QFileDialog.getSaveFileName(self, caption='Save Configuration',
-                                         filter='All (*.*);;Configuration (*.scfg)',
-                                         initialFilter='Configuration (*.scfg)')
+                                         filter='All (*.*);;SPD Configuration (*.spdcfg)',
+                                         initialFilter='SPD Configuration (*.spdcfg)')
         fn = fn[0]
         if not fn:
             return
-        assert False # XXX
+        cfg = {}
+        for ch in range(2):
+            volt = self._psu_voltage[ch]
+            cfg[f'CH{ch+1}:VOLT'] = f'{volt:.3f}'
+            curr = self._psu_current[ch]
+            cfg[f'CH{ch+1}:CURR'] = f'{curr:.3f}'
+            for num in range(5):
+                v, c, t = self._psu_timer_params[ch][num]
+                cfg[f'TIMER:SET CH{ch+1},{num+1}'] = f'{v:.3f},{c:.3f},{t:.3f}'
+            for num in range(len(self._presets[ch])):
+                v, c = self._presets[ch][num]
+                cfg[f'CH{ch+1}:PRESET {num+1}'] = f'{v:.3f},{c:.3f}'
+        match self._psu_mode:
+            case 'I':
+                cfg['OUTPUT:TRACK'] = 0
+            case 'S':
+                cfg['OUTPUT:TRACK'] = 1
+            case 'P':
+                cfg['OUTPUT:TRACK'] = 2
+            case _:
+                assert False, self._psu_mode
+
         with open(fn, 'w') as fp:
-            json.dump(ps, fp, sort_keys=True, indent=4)
+            json.dump(cfg, fp, sort_keys=True, indent=4)
 
     def _menu_do_load_configuration(self):
         """Load the current configuration from a file."""
         fn = QFileDialog.getOpenFileName(self, caption='Load Configuration',
-                                         filter='All (*.*);;Configuration (*.scfg)',
-                                         initialFilter='Configuration (*.scfg)')
+                                         filter='All (*.*);;SPD Configuration (*.spdcfg)',
+                                         initialFilter='SPD Configuration (*.spdcfg)')
         fn = fn[0]
         if not fn:
             return
         with open(fn, 'r') as fp:
-            ps = json.load(fp)
-        assert False # XXX
+            cfg = json.load(fp)
+        # Be safe by turning off the outputs before changing values
+        self._update_output_state(0, False)
+        self._update_output_state(1, False)
+        for ch in range(2):
+            key = f'CH{ch+1}:VOLT'
+            volt = cfg[key]
+            self._psu_voltage[ch] = float(volt)
+            self._inst.write(f'{key} {volt}')
+            key = f'CH{ch+1}:CURR'
+            curr = cfg[key]
+            self._psu_current[ch] = float(curr)
+            self._inst.write(f'{key} {curr}')
+            for num in range(5):
+                key = f'TIMER:SET CH{ch+1},{num+1}'
+                val = cfg[key]
+                self._inst.write(f'{key},{val}')
+                v, c, t = [float(x) for x in val.split(',')]
+                self._psu_timer_params[ch][num] = [v, c, t]
+            for num in range(len(self._presets[ch])):
+                key = f'CH{ch+1}:PRESET {num+1}'
+                val = cfg[key]
+                v, c = [float(x) for x in val.split(',')]
+                self._presets[ch][num] = [v, c]
+        match cfg['OUTPUT:TRACK']:
+            case 0:
+                self._psu_mode = 'I'
+                self._inst.write('OUTPUT:TRACK 0')
+            case 1:
+                self._psu_mode = 'S'
+                self._inst.write('OUTPUT:TRACK 1')
+            case 2:
+                self._psu_mode = 'P'
+                self._inst.write('OUTPUT:TRACK 2')
+            case _:
+                assert False, cfg['OUTPUT:TRACK']
+
+        self._update_widgets()
 
     def _menu_do_view_minmax_limits(self, state):
         """Toggle visibility of the min/max limit spinboxes."""

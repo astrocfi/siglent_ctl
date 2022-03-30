@@ -1590,8 +1590,8 @@ Connected to {self._inst._resource_name}
     def _menu_do_save_configuration(self):
         """Save the current configuration to a file."""
         fn = QFileDialog.getSaveFileName(self, caption='Save Configuration',
-                                         filter='All (*.*);;Configuration (*.scfg)',
-                                         initialFilter='Configuration (*.scfg)')
+                                         filter='All (*.*);;SDL Configuration (*.sdlcfg)',
+                                         initialFilter='SDL Configuration (*.sdlcfg)')
         fn = fn[0]
         if not fn:
             return
@@ -1608,8 +1608,8 @@ Connected to {self._inst._resource_name}
     def _menu_do_load_configuration(self):
         """Load the current configuration from a file."""
         fn = QFileDialog.getOpenFileName(self, caption='Load Configuration',
-                                         filter='All (*.*);;Configuration (*.scfg)',
-                                         initialFilter='Configuration (*.scfg)')
+                                         filter='All (*.*);;SDL Configuration (*.sdlcfg)',
+                                         initialFilter='SDL Configuration (*.sdlcfg)')
         fn = fn[0]
         if not fn:
             return

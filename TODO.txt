@@ -21,7 +21,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** XY Plotting **
 
-- Bug - scatter dot size is not defaulted correctly
 - Bug - sharing Y axis doesn't refresh the position of the Y axis label
 - Implement better way to handle breaks between time sequences instead of just inserting
   a dummy NaN. Maybe separate lists of measurements that are then stitched together?
@@ -35,7 +34,6 @@ Not implemented:
 ** SPD **
 
 Not implemented:
-  - Load/save configuration
   - Serial/parallel
   - Channel 3 indicator
   - Timer mode
