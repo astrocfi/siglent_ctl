@@ -89,13 +89,13 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # Widgets that can be hidden
         # These could be put in the widget registry but this makes them easier to
         # find
-        self._widgets_minmax_limits = []
-        self._widgets_setpoints = []
+        self._widgets_minmax_limits = [[], []]
+        self._widgets_setpoints = [[], []]
         # self._widgets_adjustment_knobs = []
-        self._widgets_preset_buttons = []
-        self._widgets_timer = []
-        self._widgets_on_off_buttons = []
-        self._widgets_measurements = []
+        self._widgets_preset_buttons = [[], []]
+        self._widgets_timer = [[], []]
+        self._widgets_on_off_buttons = [[], []]
+        self._widgets_measurements = [[], []]
 
         # Widget registry for various widgets we want to read or write
         self._widget_registry = {}
@@ -118,8 +118,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # them back in sync except starting the Time sequence over.
 
         # The time the most recent Timer step was started
+        self._timer_mode_num_steps = 5
+        self._timer_mode_last_hb = None
         self._timer_mode_running = [False, False]
-        self._timer_mode_cur_step_start_time = [None, None]
+        self._timer_mode_cur_step_elapsed = [None, None]
         self._timer_mode_cur_step_num = [None, None]
 
         # Stored measurements and triggers
@@ -144,6 +146,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         self._timer_mode_timer = QTimer(self._main_window.app)
         self._timer_mode_timer.timeout.connect(self._update_timer_table_heartbeat)
         self._timer_mode_timer.setInterval(250)
+        self._timer_mode_timer.start()
 
     ######################
     ### Public methods ###
@@ -320,7 +323,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         ### Add to View menu
 
         action = QAction('&Min/Max Limits', self, checkable=True)
-        action.setChecked(True)
+        self._widget_registry['MinMaxAction'] = action
         action.triggered.connect(self._menu_do_view_minmax_limits)
         self._menubar_view.addAction(action)
         # action = QAction('&Adjustment Knobs', self, checkable=True)
@@ -328,25 +331,23 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # action.triggered.connect(self._menu_do_view_adjustment_knobs)
         # self._menubar_view.addAction(action)
         action = QAction('&Set Points', self, checkable=True)
-        action.setChecked(True)
+        self._widget_registry['SetPointsAction'] = action
         action.triggered.connect(self._menu_do_view_setpoints)
         self._menubar_view.addAction(action)
         action = QAction('&Presets', self, checkable=True)
         self._widget_registry['PresetsAction'] = action
-        action.setChecked(True)
         action.triggered.connect(self._menu_do_view_presets)
         self._menubar_view.addAction(action)
         action = QAction('&Timer', self, checkable=True)
         self._widget_registry['TimerAction'] = action
-        action.setChecked(False)
         action.triggered.connect(self._menu_do_view_timer)
         self._menubar_view.addAction(action)
         action = QAction('&Output On/Off', self, checkable=True)
-        action.setChecked(True)
+        self._widget_registry['OutputOnOffAction'] = action
         action.triggered.connect(self._menu_do_view_output_on_off)
         self._menubar_view.addAction(action)
         action = QAction('&Measurements', self, checkable=True)
-        action.setChecked(True)
+        self._widget_registry['MeasurementsAction'] = action
         action.triggered.connect(self._menu_do_view_measurements)
         self._menubar_view.addAction(action)
 
@@ -363,6 +364,13 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         frame = self._init_widgets_add_channel(1)
         self._widget_registry['FrameCH2'] = frame
         main_horiz_layout.addWidget(frame)
+
+        self._menu_do_view_minmax_limits(False)
+        self._menu_do_view_setpoints(True)
+        self._menu_do_view_presets(False)
+        self._menu_do_view_timer(False)
+        self._menu_do_view_output_on_off(True)
+        self._menu_do_view_measurements(True)
 
         self.show()
 
@@ -396,7 +404,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             layoutg.addWidget(w, 0, cv_num)
             layoutg2 = QGridLayout()
             layouth.addLayout(layoutg2)
-            self._widgets_minmax_limits.append(w)
+            self._widgets_minmax_limits[ch].append(w)
             for mm_num, mm in enumerate(('Min', 'Max')):
                 layoutg2.addWidget(QLabel(f'{cv} {mm}:'), mm_num, 0,
                                           Qt.AlignmentFlag.AlignLeft)
@@ -428,7 +436,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             ss = """font-size: 30px; min-width: 4em; max-width: 4em;"""
             input = DoubleSpeedSpinBox(1.)
             input.wid = ('SetPoint', cv, ch)
-            self._widgets_setpoints.append(input)
+            self._widgets_setpoints[ch].append(input)
             input.setStyleSheet(ss)
             input.setAlignment(Qt.AlignmentFlag.AlignRight)
             input.setSuffix(f' {cvu}')
@@ -471,7 +479,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # Preset buttons
         w = QWidget()
         vert_layout.addWidget(w)
-        self._widgets_preset_buttons.append(w)
+        self._widgets_preset_buttons[ch].append(w)
         layoutg = QGridLayout(w)
         ss = """QPushButton { min-width: 7em; max-width: 7em;
                               min-height: 1em; max-height: 1em;
@@ -499,7 +507,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         row_layout = QHBoxLayout()
         row_layout.setContentsMargins(0, 0, 0, 0)
         layoutv.addLayout(row_layout)
-        self._widgets_timer.append(w)
+        self._widgets_timer[ch].append(w)
 
         row_layout.addStretch()
         table = QTableView(alternatingRowColors=True)
@@ -538,7 +546,8 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         pw2.setXLink(pw)
         pw2.addItem(pdi)
 
-        self._widget_registry[f'TimerStepPlot{ch}'] = pw.plot([], pen=1)
+        self._widget_registry[f'TimerStepPlot{ch}'] = pw.plot(
+            [], pen=pg.mkPen(color='#ffffff', width=1))
         size = _STYLE_SHEET['TimerPlot'][self._style_env]
         pw.setMaximumSize(size[0], size[1]) # XXX Warning magic constants!
         row_layout.addWidget(pw)
@@ -562,6 +571,12 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         button.clicked.connect(self._on_click_output_on_off)
         layouth.addWidget(button)
         self._widget_registry[f'OutputOnOff{ch}'] = button
+        layouth.addStretch()
+        button = QPushButton('TIMER OFF')
+        button.wid = ch
+        button.clicked.connect(self._on_click_timer_on_off)
+        layouth.addWidget(button)
+        self._widget_registry[f'TimerOnOff{ch}'] = button
         layouth.addStretch()
 
         ###### ROW 6 - MEASUREMENTS ######
@@ -730,6 +745,8 @@ Connected to {self._inst._resource_name}
         self._psu_mode = 'I'
         self._psu_on_off[0] = False
         self._psu_on_off[1] = False
+        self._timer_mode_running[0] = False
+        self._timer_mode_running[1] = False
         self._inst.write('OUTPUT:TRACK 0') # Turns off the outputs
         self._update_widgets()
 
@@ -741,6 +758,8 @@ Connected to {self._inst._resource_name}
         self._psu_mode = 'S'
         self._psu_on_off[0] = False
         self._psu_on_off[1] = False
+        self._timer_mode_running[0] = False
+        self._timer_mode_running[1] = False
         self._inst.write('OUTPUT:TRACK 1') # Turns off the outputs
         self._update_widgets()
 
@@ -752,24 +771,30 @@ Connected to {self._inst._resource_name}
         self._psu_mode = 'P'
         self._psu_on_off[0] = False
         self._psu_on_off[1] = False
+        self._timer_mode_running[0] = False
+        self._timer_mode_running[1] = False
         self._inst.write('OUTPUT:TRACK 2') # Turns off the outputs
         self._update_widgets()
 
     def _menu_do_view_minmax_limits(self, state):
         """Toggle visibility of the min/max limit spinboxes."""
-        for w in self._widgets_minmax_limits:
-            if state:
-                w.show()
-            else:
-                w.hide()
+        self._widget_registry['MinMaxAction'].setChecked(state)
+        for ch in range(2):
+            for w in self._widgets_minmax_limits[ch]:
+                if state:
+                    w.show()
+                else:
+                    w.hide()
 
     def _menu_do_view_setpoints(self, state):
         """Toggle visibility of the setpoint spinboxes."""
-        for w in self._widgets_setpoints:
-            if state:
-                w.show()
-            else:
-                w.hide()
+        self._widget_registry['SetPointsAction'].setChecked(state)
+        for ch in range(2):
+            for w in self._widgets_setpoints[ch]:
+                if state:
+                    w.show()
+                else:
+                    w.hide()
 
     # def _menu_do_view_adjustment_knobs(self, state):
     #     """Toggle visibility of the adjustment knobs."""
@@ -781,43 +806,51 @@ Connected to {self._inst._resource_name}
 
     def _menu_do_view_presets(self, state):
         """Toggle visibility of the preset buttons."""
+        self._widget_registry['PresetsAction'].setChecked(state)
         if state:
             # When presets are shown, we turn off timer
             self._menu_do_view_timer(False)
             self._widget_registry['TimerAction'].setChecked(False)
-        for w in self._widgets_preset_buttons:
-            if state:
-                w.show()
-            else:
-                w.hide()
+        for ch in range(2):
+            for w in self._widgets_preset_buttons[ch]:
+                if state:
+                    w.show()
+                else:
+                    w.hide()
 
     def _menu_do_view_timer(self, state):
         """Toggle visibility of the timer settings."""
+        self._widget_registry['TimerAction'].setChecked(state)
         if state:
             # When timer is shown, we turn off presets
             self._menu_do_view_presets(False)
             self._widget_registry['PresetsAction'].setChecked(False)
-        for w in self._widgets_timer:
-            if state:
-                w.show()
-            else:
-                w.hide()
+        for ch in range(2):
+            for w in self._widgets_timer[ch]:
+                if state:
+                    w.show()
+                else:
+                    w.hide()
 
     def _menu_do_view_output_on_off(self, state):
         """Toggle visibility of the output buttons row."""
-        for w in self._widgets_on_off_buttons:
-            if state:
-                w.show()
-            else:
-                w.hide()
+        self._widget_registry['OutputOnOffAction'].setChecked(state)
+        for ch in range(2):
+            for w in self._widgets_on_off_buttons[ch]:
+                if state:
+                    w.show()
+                else:
+                    w.hide()
 
     def _menu_do_view_measurements(self, state):
         """Toggle visibility of the measurements row."""
-        for w in self._widgets_measurements:
-            if state:
-                w.show()
-            else:
-                w.hide()
+        self._widget_registry['MeasurementsAction'].setChecked(state)
+        for ch in range(2):
+            for w in self._widgets_measurements[ch]:
+                if state:
+                    w.show()
+                else:
+                    w.hide()
 
     def _on_value_change(self):
         """Handle clicking on any input value edit box."""
@@ -911,8 +944,6 @@ Connected to {self._inst._resource_name}
 
     def _on_click_output_on_off(self):
         """Handle clicking on one of the OUTPUT buttons."""
-        if self._disable_callbacks: # Prevent recursive calls
-            return
         sender = self.sender()
         ch = sender.wid
         state = not self._psu_on_off[ch]
@@ -922,6 +953,22 @@ Connected to {self._inst._resource_name}
             assert ch == 0
             self._psu_on_off[1] = state
         self._update_output_state(ch, state)
+
+    def _on_click_timer_on_off(self):
+        """Handle clicking on one of the TIMER buttons."""
+        if self._disable_callbacks: # Prevent recursive calls
+            return
+        sender = self.sender()
+        ch = sender.wid
+        state = not self._timer_mode_running[ch]
+        assert self._psu_mode == 'I'
+        if state:
+            self._timer_mode_cur_step_elapsed[ch] = 0
+            self._timer_mode_cur_step_num[ch] = 0
+            self._psu_voltage[ch] = self._psu_timer_params[ch][0][0]
+            self._psu_current[ch] = self._psu_timer_params[ch][0][1]
+        self._psu_on_off[ch] = state
+        self._update_timer_state(ch, state)  # Calls _update_widgets
 
     def _update_output_on_off_buttons(self):
         """Update the style of the OUTPUT buttons based on current state."""
@@ -939,13 +986,34 @@ Connected to {self._inst._resource_name}
                 bg_color = '#c0c0c0'
             ss = f"""QPushButton {{
                         background-color: {bg_color};
-                        min-width: 7em; max-width: 7em;
+                        min-width: 6.5em; max-width: 6.5em;
                         min-height: 1em; max-height: 1em;
                         border-radius: 0.4em; border: 5px solid black;
                         font-weight: bold; font-size: 22px; }}
                      QPushButton:pressed {{ border: 7px solid black; }}
                   """
             bt.setStyleSheet(ss)
+
+    def _update_timer_on_off_buttons(self):
+        """Update the style of the TIMER buttons based on current state."""
+        for ch in range(2):
+            bt = self._widget_registry[f'TimerOnOff{ch}']
+            if self._timer_mode_running[ch]:
+                bt.setText('TIMER ON')
+                bg_color = '#c0ffb0'
+            else:
+                bt.setText('TIMER OFF')
+                bg_color = '#c0c0c0'
+            ss = f"""QPushButton {{
+                        background-color: {bg_color};
+                        min-width: 4em; max-width: 4em;
+                        min-height: 1em; max-height: 1em;
+                        border-radius: 0.4em; border: 3px solid black;
+                        font-weight: bold; font-size: 14px; }}
+                     QPushButton:pressed {{ border: 5px solid black; }}
+                  """
+            bt.setStyleSheet(ss)
+            bt.setEnabled(self._psu_mode == 'I')
 
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
@@ -971,6 +1039,12 @@ Connected to {self._inst._resource_name}
         val = 'ON' if state else 'OFF'
         self._inst.write(f'OUTPUT CH{ch+1},{val}')
         self._update_output_on_off_buttons()
+
+    def _update_timer_state(self, ch, state):
+        self._timer_mode_running[ch] = state
+        val = 'ON' if state else 'OFF'
+        self._inst.write(f'TIMER CH{ch+1},{val}')
+        self._update_widgets()
 
     def _update_widgets(self, minmax_ok=True):
         """Update all widgets with the current internal state."""
@@ -1019,12 +1093,24 @@ Connected to {self._inst._resource_name}
             case _:
                 assert False, self._psu_mode
 
+        self._update_timer_on_off_buttons()
         self._update_timer_table_graphs()
 
         # Update the Enable Measurements checkboxes
         # self._widget_registry['EnableV'].setChecked(self._enable_measurement_v)
         # self._widget_registry['EnableC'].setChecked(self._enable_measurement_c)
         # self._widget_registry['EnableP'].setChecked(self._enable_measurement_p)
+
+        for ch in range(2):
+            enabled = not self._timer_mode_running[ch]
+            for w in self._widgets_minmax_limits[ch]:
+                w.setEnabled(enabled)
+            for w in self._widgets_setpoints[ch]:
+                w.setEnabled(enabled)
+            for w in self._widgets_preset_buttons[ch]:
+                w.setEnabled(enabled)
+            for w in self._widgets_timer[ch]:
+                w.setEnabled(enabled)
 
         self._disable_callbacks = False
 
@@ -1035,16 +1121,15 @@ Connected to {self._inst._resource_name}
         hdr = ('Voltage (V)', 'Current (A)', 'Time (s)')
         fmts = ('.3f', '.3f', '.3f')
         ranges = ((0, 32), (0, 3.2), (0, 10000))
-        steps = 5
         for ch in range(2):
             table = self._widget_registry[f'TimerTable{ch}']
-            if update_table:
+            if update_table and not timer_step_only:
                 # We don't always want to update the table, because in edit mode when
                 # the user changes a value, the table will have already been updated
                 # internally, and if we mess with it here it screws up the focus for
                 # the edit box and the edit box never closes.
                 data = []
-                for i in range(steps):
+                for i in range(self._timer_mode_num_steps):
                     data.append(self._psu_timer_params[ch][i])
                 table.model().set_params(data, fmts, hdr)
                 for i, fmt in enumerate(fmts):
@@ -1053,65 +1138,89 @@ Connected to {self._inst._resource_name}
                     table.setColumnWidth(i, widths[i])
 
             # Update the Timer plot
-            for plot_num, vi in enumerate(('V', 'I')):
-                min_plot_y = 0
-                levels = [x[plot_num] for x in self._psu_timer_params[ch]]
-                max_plot_y = max(levels)
-                if not timer_step_only:
-                    plot_x = [0]
-                    plot_y = [levels[0]]
-                    for i in range(steps-1):
-                        x_val = plot_x[-1] + self._psu_timer_params[ch][i][2]
-                        plot_x.append(x_val)
-                        plot_x.append(x_val)
-                        plot_y.append(self._psu_timer_params[ch][i][plot_num])
-                        plot_y.append(self._psu_timer_params[ch][i+1][plot_num])
-                    plot_x.append(plot_x[-1]+self._psu_timer_params[ch][steps-1][2])
-                    plot_y.append(levels[steps-1])
-                    plot_widget = self._widget_registry[f'TimerPlot{vi}{ch}']
-                    pdi = self._widget_registry[f'Timer{vi}PlotItem{ch}']
-                    pdi.setData(plot_x, plot_y)
-                    plot_widget.setYRange(min_plot_y, max_plot_y)
+            if not timer_step_only:
+                for plot_num, vi in enumerate(('V', 'I')):
+                    min_plot_y = 0
+                    levels = [x[plot_num] for x in self._psu_timer_params[ch]]
+                    max_plot_y = max(levels)
+                    if not timer_step_only:
+                        plot_x = [0]
+                        plot_y = [levels[0]]
+                        for i in range(self._timer_mode_num_steps-1):
+                            x_val = plot_x[-1] + self._psu_timer_params[ch][i][2]
+                            plot_x.append(x_val)
+                            plot_x.append(x_val)
+                            plot_y.append(self._psu_timer_params[ch][i][plot_num])
+                            plot_y.append(self._psu_timer_params[ch][i+1][plot_num])
+                        plot_x.append(plot_x[-1]+
+                                      self._psu_timer_params[ch][
+                                          self._timer_mode_num_steps-1][2])
+                        plot_y.append(levels[self._timer_mode_num_steps-1])
+                        plot_widget = self._widget_registry[f'TimerPlot{vi}{ch}']
+                        pdi = self._widget_registry[f'Timer{vi}PlotItem{ch}']
+                        pdi.setData(plot_x, plot_y)
+                        plot_widget.setYRange(min_plot_y, max_plot_y)
 
             # Update the running plot and highlight the appropriate table row
-            # if self._timer_mode_cur_step_num is not None:
-            #     delta = 0
-            #     step_num = self._timer_mode_cur_step_num
-            #     if self._timer_mode_running:
-            #         delta = time.time() - self._timer_mode_cur_step_start_time
-            #     else:
-            #         # When we pause List mode, we end at the end of the previous step,
-            #         # not the start of the next step
-            #         step_num = (step_num-1) % self._param_state[':LIST:STEP']
-            #         delta = self._timer_mode_widths[step_num]
-            #     cur_step_x = 0
-            #     if step_num > 0:
-            #         cur_step_x = sum(self._timer_mode_widths[:step_num])
-            #     cur_step_x += delta
-            #     self._timer_mode_step_plot.setData([cur_step_x, cur_step_x],
-            #                                       [min_plot_y, max_plot_y])
-            #     table.model().set_highlighted_row(step_num)
-            # else:
-            #     table.model().set_highlighted_row(None)
-            #     self._timer_mode_step_plot.setData([], [])
+            if self._timer_mode_running[ch]:
+                delta = 0
+                step_num = self._timer_mode_cur_step_num[ch]
+                if self._timer_mode_running[ch]:
+                    delta = self._timer_mode_cur_step_elapsed[ch]
+                cur_step_x = 0
+                if step_num > 0:
+                    cur_step_x = sum([x[2]
+                                      for x in self._psu_timer_params[ch][:step_num]])
+                cur_step_x += delta
+                min_plot_y = 0
+                levels = [x[0] for x in self._psu_timer_params[ch]]
+                max_plot_y = max(levels)
+                self._widget_registry[f'TimerStepPlot{ch}'].setData(
+                    [cur_step_x, cur_step_x], [min_plot_y, max_plot_y])
+                table.model().set_highlighted_row(step_num)
+            else:
+                table.model().set_highlighted_row(None)
+                self._widget_registry[f'TimerStepPlot{ch}'].setData([], [])
 
     def _update_timer_table_heartbeat(self):
-        """Handle the rapid heartbeat when in List mode to update the highlighting."""
-        if self._timer_mode_running:
-            cur_time = time.time()
-            delta = cur_time - self._timer_mode_cur_step_start_time
-            if delta >= self._timer_mode_widths[self._timer_mode_cur_step_num]:
-                # We've moved on to the next step (or more than one step)
-                if self._timer_mode_stopping:
-                    self._timer_mode_stopping = False
-                    self._timer_mode_running = False
-                    self._timer_mode_timer.stop()
-                while delta >= self._timer_mode_widths[self._timer_mode_cur_step_num]:
-                    delta -= self._timer_mode_widths[self._timer_mode_cur_step_num]
-                    self._timer_mode_cur_step_num = (
-                        self._timer_mode_cur_step_num+1) % self._param_state[':LIST:STEP']
-                self._timer_mode_cur_step_start_time = cur_time - delta
-            self._update_timer_table_graphs(timer_step_only=True)
+        """Handle the rapid heartbeat when in Timer mode to update the highlighting."""
+        cur_time = time.time()
+        if self._timer_mode_last_hb is None:
+            hb_delta = 0
+        else:
+            hb_delta = cur_time - self._timer_mode_last_hb
+        self._timer_mode_last_hb = cur_time
+        update = False
+        for ch in range(2):
+            if self._timer_mode_running[ch]:
+                widths = [x[2] for x in self._psu_timer_params[ch]]
+                if self._psu_on_off[ch]:
+                    self._timer_mode_cur_step_elapsed[ch] += hb_delta
+                delta = self._timer_mode_cur_step_elapsed[ch]
+                if delta >= widths[self._timer_mode_cur_step_num[ch]]:
+                    # We've moved on to the next step (or more than one step)
+                    while delta >= widths[self._timer_mode_cur_step_num[ch]]:
+                        delta -= widths[self._timer_mode_cur_step_num[ch]]
+                        step_num = self._timer_mode_cur_step_num[ch]+1
+                        if step_num >= self._timer_mode_num_steps:
+                            self._timer_mode_running[ch] = False
+                            # We don't update the on/off state when the timer expires
+                            # because we may not be perfectly in sync with the
+                            # instrument and the output will still be on for a
+                            # little bit past when we expect it to be. So we wait
+                            # for measurement reading to update the output state.
+                            break
+                        else:
+                            self._timer_mode_cur_step_num[ch] = step_num
+                    if self._timer_mode_running[ch]:
+                        step_num = self._timer_mode_cur_step_num[ch]
+                        self._psu_voltage[ch] = self._psu_timer_params[ch][step_num][0]
+                        self._psu_current[ch] = self._psu_timer_params[ch][step_num][1]
+                        self._timer_mode_cur_step_elapsed[ch] = delta
+                    update = True
+        if update:
+            self._update_widgets()
+        self._update_timer_table_graphs(timer_step_only=True)
 
 
 ##########################################################################################

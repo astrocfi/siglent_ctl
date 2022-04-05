@@ -214,6 +214,8 @@ class ListTableModel(QAbstractTableModel):
         self.dataChanged.emit(index_1, index_2, [Qt.ItemDataRole.DisplayRole])
 
     def set_highlighted_row(self, row):
+        if self._highlighted_row == row:
+            return
         if self._highlighted_row is not None:
             index_1 = self.index(self._highlighted_row, 0)
             index_2 = self.index(self._highlighted_row, len(self._fmts)-1)
