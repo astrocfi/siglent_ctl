@@ -1,6 +1,7 @@
 - Current status:
 
 - Tab focus?
+- Axes occasionally don't update in plot window
 
 ** PyInstaller **
 
@@ -35,7 +36,6 @@ Not implemented:
 
 Not implemented:
   - Channel 3 indicator
-  - Timer mode
 
 ** SDS **
 

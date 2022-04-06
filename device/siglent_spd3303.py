@@ -409,6 +409,8 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 layoutg2.addWidget(QLabel(f'{cv} {mm}:'), mm_num, 0,
                                           Qt.AlignmentFlag.AlignLeft)
                 input = DoubleSpeedSpinBox(1.)
+                ss = """min-width: 4em; max-width: 4em;"""
+                input.setStyleSheet(ss)
                 input.wid = (mm, cv, ch)
                 input.setAlignment(Qt.AlignmentFlag.AlignRight)
                 input.setSuffix(f' {cvu}')
@@ -690,11 +692,15 @@ Connected to {self._inst._resource_name}
             return
         with open(fn, 'r') as fp:
             cfg = json.load(fp)
-        # Be safe by turning off the outputs before changing values
+        # Be safe by turning off the outputs and timer before changing values
+        self._timer_mode_running[0] = False
+        self._timer_mode_running[1] = False
         match cfg['OUTPUT:TRACK']:
             case 0:
                 self._psu_mode = 'I'
                 self._inst.write('OUTPUT:TRACK 0')
+                self._inst.write('TIMER CH1,OFF')
+                self._inst.write('TIMER CH2,OFF')
             case 1:
                 self._psu_mode = 'S'
                 self._inst.write('OUTPUT:TRACK 1')
@@ -867,6 +873,7 @@ Connected to {self._inst._resource_name}
                 sp = self._widget_registry[f'SetPoint{ch}{vi}']
                 sp.setMinimum(val)
                 self._widget_registry[f'Max{ch}{vi}'].setMinimum(val)
+                self._update_timer_minmax(ch)
                 # Fall through into SetPoint to catch this change affecting the
                 # SetPoint spinner's value
                 wid_type = 'SetPoint'
@@ -876,6 +883,7 @@ Connected to {self._inst._resource_name}
                 sp = self._widget_registry[f'SetPoint{ch}{vi}']
                 sp.setMaximum(val)
                 self._widget_registry[f'Min{ch}{vi}'].setMaximum(val)
+                self._update_timer_minmax(ch)
                 # Fall through into SetPoint to catch this change affecting the
                 # SetPoint spinner's value
                 wid_type = 'SetPoint'
@@ -904,6 +912,21 @@ Connected to {self._inst._resource_name}
                     assert False
 
         self._update_widgets()
+
+    def _update_timer_minmax(self, ch):
+        """Update the timer values based on the current min/max settings."""
+        min_v = self._widget_registry[f'Min{ch}V'].value()
+        max_v = self._widget_registry[f'Max{ch}V'].value()
+        min_i = self._widget_registry[f'Min{ch}I'].value()
+        max_i = self._widget_registry[f'Max{ch}I'].value()
+        for step_num in range(self._timer_mode_num_steps):
+            v, i, t = self._psu_timer_params[ch][step_num]
+            v1 = max(min_v, min(max_v, v))
+            i1 = max(min_i, min(max_i, i))
+            if v != v1 or i != i1:
+                self._psu_timer_params[ch][step_num] = [v1, i1, t]
+                self._inst.write(
+                    f'TIMER:SET CH{ch+1},{step_num+1},{v1:.3f},{i1:.3f},{t:.3f}')
 
     def _on_preset_clicked(self, button):
         ch, preset_num = button.wid
@@ -934,6 +957,7 @@ Connected to {self._inst._resource_name}
         volt, curr, time = self._psu_timer_params[ch][row]
         self._inst.write(f'TIMER:SET CH{ch+1},{row+1},{volt:.3f},{curr:.3f},{time:.3f}')
         self._update_timer_table_graphs(update_table=False)
+        self._update_timer_on_off_buttons()
 
     def _on_timer_plot_resize(self):
         for ch in range(2):
@@ -965,6 +989,11 @@ Connected to {self._inst._resource_name}
         if state:
             self._timer_mode_cur_step_elapsed[ch] = 0
             self._timer_mode_cur_step_num[ch] = 0
+            # Skip over zero-time steps to avoid UI glitches
+            for step in range(self._timer_mode_num_steps):
+                if self._psu_timer_params[ch][step][2] > 0:
+                    self._timer_mode_cur_step_num[ch] = step
+                    break
             self._psu_voltage[ch] = self._psu_timer_params[ch][0][0]
             self._psu_current[ch] = self._psu_timer_params[ch][0][1]
         self._psu_on_off[ch] = state
@@ -1013,7 +1042,11 @@ Connected to {self._inst._resource_name}
                      QPushButton:pressed {{ border: 5px solid black; }}
                   """
             bt.setStyleSheet(ss)
-            bt.setEnabled(self._psu_mode == 'I')
+            # Only enable the timer button in Independent mode when at least one
+            # Timer entry has non-zero duration. If we don't do this, and try to
+            # start the timer, the SPD will beep and show an error.
+            bt.setEnabled(self._psu_mode == 'I' and
+                any([x[2] for x in self._psu_timer_params[ch]]))
 
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
@@ -1139,27 +1172,33 @@ Connected to {self._inst._resource_name}
 
             # Update the Timer plot
             if not timer_step_only:
-                for plot_num, vi in enumerate(('V', 'I')):
-                    min_plot_y = 0
-                    levels = [x[plot_num] for x in self._psu_timer_params[ch]]
-                    max_plot_y = max(levels)
-                    if not timer_step_only:
-                        plot_x = [0]
-                        plot_y = [levels[0]]
-                        for i in range(self._timer_mode_num_steps-1):
-                            x_val = plot_x[-1] + self._psu_timer_params[ch][i][2]
-                            plot_x.append(x_val)
-                            plot_x.append(x_val)
-                            plot_y.append(self._psu_timer_params[ch][i][plot_num])
-                            plot_y.append(self._psu_timer_params[ch][i+1][plot_num])
-                        plot_x.append(plot_x[-1]+
-                                      self._psu_timer_params[ch][
-                                          self._timer_mode_num_steps-1][2])
-                        plot_y.append(levels[self._timer_mode_num_steps-1])
+                compressed_params = [x for x in self._psu_timer_params[ch] if x[2] > 0]
+                if len(compressed_params) > 0:
+                    for plot_num, vi in enumerate(('V', 'I')):
+                        min_plot_y = 0
+                        levels = [x[plot_num] for x in compressed_params]
+                        max_plot_y = max(levels)
+                        if not timer_step_only:
+                            plot_x = [0]
+                            plot_y = [levels[0]]
+                            for i in range(len(compressed_params)-1):
+                                x_val = plot_x[-1] + compressed_params[i][2]
+                                plot_x.append(x_val)
+                                plot_x.append(x_val)
+                                plot_y.append(compressed_params[i][plot_num])
+                                plot_y.append(compressed_params[i+1][plot_num])
+                            plot_x.append(plot_x[-1]+compressed_params[-1][2])
+                            plot_y.append(levels[-1])
+                            plot_widget = self._widget_registry[f'TimerPlot{vi}{ch}']
+                            pdi = self._widget_registry[f'Timer{vi}PlotItem{ch}']
+                            pdi.setData(plot_x, plot_y)
+                            plot_widget.setYRange(min_plot_y, max_plot_y)
+                else:
+                    for vi in ('V', 'I'):
                         plot_widget = self._widget_registry[f'TimerPlot{vi}{ch}']
                         pdi = self._widget_registry[f'Timer{vi}PlotItem{ch}']
-                        pdi.setData(plot_x, plot_y)
-                        plot_widget.setYRange(min_plot_y, max_plot_y)
+                        pdi.setData([], [])
+                        plot_widget.setYRange(0, 1)
 
             # Update the running plot and highlight the appropriate table row
             if self._timer_mode_running[ch]:

@@ -373,7 +373,9 @@ class MainWindow(QWidget):
         self._measurement_times = []
         for key in self._measurements:
             self._measurements[key] = []
-        self._update()
+        self._measurement_last_good = True
+        for plot_widget in self._plot_window_widgets:
+            plot_widget.update()
 
     def _on_click_acquisition_mode(self):
         """Handle Measurement Mode radio buttons."""
@@ -571,6 +573,7 @@ class MainWindow(QWidget):
 
 Supported instruments:
 SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E
+SPD3303X, SPD3303X-E
 
 Copyright 2022, Robert S. French"""
         QMessageBox.about(self, 'About', msg)
