@@ -26,18 +26,16 @@ from .siglent_sdl1000 import InstrumentSiglentSDL1000
 from .siglent_spd3303 import InstrumentSiglentSPD3303
 
 
+_DEVICE_MAPPING = {}
+SUPPORTED_INSTRUMENTS = []
+for cls in (InstrumentSiglentSDL1000,
+            InstrumentSiglentSPD3303):
+    _DEVICE_MAPPING.update(cls.idn_mapping())
+    SUPPORTED_INSTRUMENTS += cls.supported_instruments()
+
+
 class UnknownInstrumentType(Exception):
     pass
-
-
-_DEVICE_MAPPING = {
-    ('Siglent Technologies', 'SDL1020X'):   InstrumentSiglentSDL1000,
-    ('Siglent Technologies', 'SDL1020X-E'): InstrumentSiglentSDL1000,
-    ('Siglent Technologies', 'SDL1030X'):   InstrumentSiglentSDL1000,
-    ('Siglent Technologies', 'SDL1030X-E'): InstrumentSiglentSDL1000,
-    ('Siglent Technologies', 'SPD3303X'):   InstrumentSiglentSPD3303,
-    ('Siglent Technologies', 'SPD3303X-E'): InstrumentSiglentSPD3303,
-}
 
 
 def create_device(rm, resource_name):

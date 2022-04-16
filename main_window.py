@@ -44,10 +44,9 @@ from PyQt6.QtWidgets import (QButtonGroup,
                              QVBoxLayout,
                              QWidget,
                             )
-from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QAction, QKeySequence
 
-import numpy as np
 import pyvisa
 
 import device
@@ -164,6 +163,7 @@ class MainWindow(QWidget):
 
         self._menubar_device = self._menubar.addMenu('&Device')
         action = QAction('&Open IP address...', self)
+        action.setShortcut(QKeySequence('Ctrl+O'))
         action.triggered.connect(self._menu_do_open_ip)
         self._menubar_device.addAction(action)
         action = QAction('E&xit', self)
@@ -184,6 +184,7 @@ class MainWindow(QWidget):
 
         self._menubar_device = self._menubar.addMenu('&Plot')
         action = QAction('New &X/Y Plot', self)
+        action.setShortcut(QKeySequence('Ctrl+P'))
         action.triggered.connect(self._menu_do_new_xy_plot)
         self._menubar_device.addAction(action)
 
@@ -480,7 +481,7 @@ class MainWindow(QWidget):
                 for resource_name, inst, config_widget in self._open_resources:
                     if config_widget is not None:
                         for trigger_key, trigger in config_widget.get_triggers().items():
-                            key = (inst.name, trigger_key)
+                            key = (inst.long_name, trigger_key)
                             if key == self._measurement_state_source:
                                 self._acquisition_ready = trigger['val']
                                 return
@@ -492,7 +493,7 @@ class MainWindow(QWidget):
                     return
                 for resource_name, inst, config_widget in self._open_resources:
                     if config_widget is not None:
-                        if src[0] == inst.name:
+                        if src[0] == inst.long_name:
                             break
                 else:
                     assert False, self._measurement_value_source
@@ -550,7 +551,7 @@ class MainWindow(QWidget):
                 measurements = config_widget.get_measurements()
                 for meas_key, meas in measurements.items():
                     name = meas['name']
-                    key = (inst.name, meas_key)
+                    key = (inst.long_name, meas_key)
                     if key not in self._measurements:
                         self._measurements[key] = ([math.nan] *
                                                    len(self._measurement_times))
@@ -563,17 +564,19 @@ class MainWindow(QWidget):
                         if val is None:
                             val = math.nan
                     self._measurements[key].append(val)
+                    # The user can change the short name
+                    self._measurement_names[key] = f'{inst.name}: {name}'
         self._measurement_last_good = not force_nan
         for plot_widget in self._plot_window_widgets:
             plot_widget.update()
 
     def _menu_do_about(self):
         """Show the About box."""
-        msg = """Siglent Instrument Controller.
+        supported = ', '.join(device.SUPPORTED_INSTRUMENTS)
+        msg = f"""Siglent Instrument Controller.
 
 Supported instruments:
-SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E
-SPD3303X, SPD3303X-E
+{supported}
 
 Copyright 2022, Robert S. French"""
         QMessageBox.about(self, 'About', msg)
@@ -640,7 +643,7 @@ Copyright 2022, Robert S. French"""
         measurements, _ = config_widget.update_measurements_and_triggers(read_inst=False)
         for meas_key, meas in measurements.items():
             name = meas['name']
-            key = (inst.name, meas_key)
+            key = (inst.long_name, meas_key)
             self._measurements[key] = [math.nan] * num_existing
             self._measurement_units[key] = meas['unit']
             self._measurement_names[key] = f'{inst.name}: {name}'
@@ -665,7 +668,7 @@ Copyright 2022, Robert S. French"""
         del self._open_resources[idx]
         self._refresh_menubar_device_recent_resources()
         for key in list(self._measurements): # Need list because we're modifying keys
-            if key[0] == inst.name:
+            if key[0] == inst.long_name:
                 del self._measurements[key]
                 del self._measurement_names[key]
                 del self._measurement_units[key]
@@ -674,10 +677,10 @@ Copyright 2022, Robert S. French"""
             plot_widget.measurements_changed()
 
         if (self._measurement_state_source is not None and
-            self._measurement_state_source[0] == inst.name):
+                self._measurement_state_source[0] == inst.long_name):
             self._measurement_state_source = None
         if (self._measurement_value_source is not None and
-            self._measurement_value_source[0] == inst.name):
+                self._measurement_value_source[0] == inst.long_name):
             self._measurement_value_source = None
 
         self._update_widgets()
@@ -707,7 +710,7 @@ Copyright 2022, Robert S. French"""
                 for trigger_key, trigger in config_widget.get_triggers().items():
                     trig_name = trigger['name']
                     name = f'{inst.name}: {trig_name}'
-                    key = (inst.name, trigger_key)
+                    key = (inst.long_name, trigger_key)
                     state_combo.addItem(name, userData=key)
                     if self._measurement_state_source is None:
                         self._measurement_state_source = key
@@ -717,7 +720,7 @@ Copyright 2022, Robert S. French"""
                 for meas_key, measurement in config_widget.get_measurements().items():
                     meas_name = measurement['name']
                     name = f'{inst.name}: {meas_name}'
-                    key = (inst.name, meas_key)
+                    key = (inst.long_name, meas_key)
                     val_src_combo.addItem(name, userData=key)
                     if self._measurement_value_source is None:
                         self._measurement_value_source = key
@@ -766,3 +769,16 @@ Copyright 2022, Robert S. French"""
                  font-weight: bold; font-size: 18px;
                  background-color: #c0c0c0; color: {color};"""
         label.setStyleSheet(ss)
+
+    def device_renamed(self, config_widget):
+        """Called when a device configuration window is renamed by the user."""
+        measurements = config_widget.get_measurements()
+        long_name = config_widget._inst.long_name
+        inst_name = config_widget._inst.name
+        for meas_key, meas in measurements.items():
+            name = meas['name']
+            key = (long_name, meas_key)
+            self._measurement_names[key] = f'{inst_name}: {name}'
+        self._update_widgets()
+        for widget in self._plot_window_widgets:
+            widget.measurements_changed()

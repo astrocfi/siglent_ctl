@@ -22,14 +22,13 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
-import platform
-
 from PyQt6.QtWidgets import (QAbstractSpinBox,
                              QApplication,
                              QDialog,
                              QDialogButtonBox,
                              QDoubleSpinBox,
                              QFileDialog,
+                             QInputDialog,
                              QLayout,
                              QMenuBar,
                              QPlainTextEdit,
@@ -41,6 +40,7 @@ from PyQt6.QtWidgets import (QAbstractSpinBox,
 from PyQt6.QtCore import Qt, QAbstractTableModel, QTimer
 from PyQt6.QtGui import QAction, QColor
 from PyQt6.QtPrintSupport import QPrintDialog
+
 
 class ConfigureWidgetBase(QWidget):
     def __init__(self, main_window, instrument):
@@ -63,7 +63,7 @@ class ConfigureWidgetBase(QWidget):
 
     def _toplevel_widget(self, has_reset=True):
         QWidget.__init__(self)
-        self.setWindowTitle(f'{self._inst._long_name} ({self._inst._name})')
+        self.setWindowTitle(f'{self._inst.long_name} ({self._inst.name})')
 
         layoutv = QVBoxLayout(self)
         layoutv.setContentsMargins(0, 0, 0, 0)
@@ -84,11 +84,14 @@ class ConfigureWidgetBase(QWidget):
             action = QAction('Reset device to &default', self)
             action.triggered.connect(self._menu_do_reset_device)
             self._menubar_configure.addAction(action)
-        action = QAction('&Refresh', self)
+        action = QAction('&Refresh from instrument', self)
         action.triggered.connect(self._menu_do_refresh_configuration)
         self._menubar_configure.addAction(action)
 
         self._menubar_device = self._menubar.addMenu('&Device')
+        action = QAction('&Rename...', self)
+        action.triggered.connect(self._menu_do_rename_device)
+        self._menubar_device.addAction(action)
 
         self._menubar_view = self._menubar.addMenu('&View')
 
@@ -110,6 +113,19 @@ class ConfigureWidgetBase(QWidget):
 
     def _menu_do_refresh_configuration(self):
         self.refresh()
+
+    def _menu_do_rename_device(self):
+        text, ok = QInputDialog.getText(self, 'Change device name',
+                                        'Device name:',
+                                        text=self._inst.name)
+        if ok:
+            self._inst.name = text
+            self.device_renamed()
+
+    def device_renamed(self):
+        """Called when the device is renamed."""
+        self.setWindowTitle(f'{self._inst.long_name} ({self._inst.name})')
+        self._main_window.device_renamed(self)
 
     def _menu_do_load_configuration(self):
         raise NotImplementedError
@@ -168,6 +184,7 @@ class PrintableTextDialog(QDialog):
             return
         with open(fn, 'w') as fp:
             fp.write(self._text_widget.toPlainText())
+
 
 class DoubleSpinBoxDelegate(QStyledItemDelegate):
     """Numerical input field to use in a QTableView."""
@@ -319,7 +336,7 @@ class LongClickButton(QPushButton):
         self._long_click_handler(self)
 
 
-class DoubleSpeedSpinBox(QDoubleSpinBox):
+class MultiSpeedSpinBox(QDoubleSpinBox):
     """DoubleSpinBox that supports click, Ctrl+click, and Shift+click steps.
 
     Click means normal step. Then moving counterclockwise around the keyboard,

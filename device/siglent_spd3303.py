@@ -24,16 +24,23 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
+################################################################################
+# This module contains two basic sections. The internal instrument driver is
+# specified by the InstrumentSiglentSPD3303 class. The GUI for the control
+# widget is specified by the InstrumentSiglentSPD3303ConfigureWidget class.
+#
+# Hidden accelerator keys:
+#   Alt+A       Channel 1 ON/OFF
+#   Alt+B       Channel 2 ON/OFF
+#   Alt+F       All channels OFF
+#   Alt+N       All channels ON
+################################################################################
+
+
 import json
-import re
 import time
 
-from PyQt6.QtWidgets import (QAbstractSpinBox,
-                             QButtonGroup,
-                             QCheckBox,
-                             QDial,
-                             QDoubleSpinBox,
-                             QFileDialog,
+from PyQt6.QtWidgets import (QFileDialog,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
@@ -41,22 +48,92 @@ from PyQt6.QtWidgets import (QAbstractSpinBox,
                              QLayout,
                              QMessageBox,
                              QPushButton,
-                             QRadioButton,
-                             QStyledItemDelegate,
                              QTableView,
                              QVBoxLayout,
                              QWidget)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtGui import QAction, QKeySequence, QShortcut
 
 import pyqtgraph as pg
 
 from .device import Device4882
 from .config_widget_base import (ConfigureWidgetBase,
-                                 DoubleSpeedSpinBox,
                                  DoubleSpinBoxDelegate,
                                  ListTableModel,
-                                 LongClickButton)
+                                 LongClickButton,
+                                 MultiSpeedSpinBox)
+
+
+class InstrumentSiglentSPD3303(Device4882):
+    """Controller for SPD3303-series devices."""
+
+    @classmethod
+    def idn_mapping(cls):
+        return {
+            ('Siglent Technologies', 'SPD3303X'):   InstrumentSiglentSPD3303,
+            ('Siglent Technologies', 'SPD3303X-E'): InstrumentSiglentSPD3303,
+        }
+
+    @classmethod
+    def supported_instruments(cls):
+        return (
+            'SPD3303X',
+            'SPD3303X-E'
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._long_name = f'SPD3303 @ {self._resource_name}'
+        if self._resource_name.startswith('TCPIP'):
+            ips = self._resource_name.split('.') # This only works with TCP!
+            self._name = f'SPD{ips[-1]}'
+        else:
+            self._name = 'SPD'
+
+    def connect(self, *args, **kwargs):
+        super().connect(*args, **kwargs)
+        idn = self.idn().split(',')
+        if len(idn) != 4:
+            assert ValueError
+        (self._manufacturer,
+         self._model,
+         self._serial_number,
+         self._firmware_version,
+         self._hardware_version) = idn
+        if self._manufacturer != 'Siglent Technologies':
+            assert ValueError
+        if not self._model.startswith('SPD'):
+            assert ValueError
+        self._long_name = f'{self._model} @ {self._resource_name}'
+
+    def disconnect(self, *args, **kwargs):
+        super().disconnect(*args, **kwargs)
+
+    def configure_widget(self, main_window):
+        return InstrumentSiglentSPD3303ConfigureWidget(main_window, self)
+
+    def set_input_state(self, val):
+        self._validator_1(val)
+        self.write(f':INPUT:STATE {val}')
+
+    def measure_voltage(self, ch):
+        return float(self.query(f'MEAS:VOLT? CH{ch}'))
+
+    def measure_current(self, ch):
+        return float(self.query(f'MEAS:CURR? CH{ch}'))
+
+    def measure_power(self, ch):
+        return float(self.query(f'MEAS:POWER? CH{ch}'))
+
+    def measure_vcp(self, ch):
+        return (self.measure_voltage(ch),
+                self.measure_current(ch),
+                self.measure_power(ch))
+
+
+##########################################################################################
+##########################################################################################
+##########################################################################################
 
 
 # Style sheets for different operating systems
@@ -74,13 +151,14 @@ _STYLE_SHEET = {
 }
 
 _PRESETS = [
-    [ 2.5, 3.2],
-    [ 3.3, 3.2],
-    [ 5.0, 3.2],
+    [ 2.5, 3.2], # noqa: E201
+    [ 3.3, 3.2], # noqa: E201
+    [ 5.0, 3.2], # noqa: E201
     [12.0, 3.2],
     [13.8, 3.2],
     [24.0, 3.2]
 ]
+
 
 # This class encapsulates the main SDL configuration widget.
 
@@ -191,7 +269,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             status |= (1 << (ch+4)) and self._psu_on_off[ch]
             for entry in range(5):
                 volt, curr, timer = self._psu_timer_params[ch][entry]
-                res = self._inst.write(
+                self._inst.write(
                     f'TIMER:SET CH{ch+1},{entry+1},{volt:.3f},{curr:.3f},{timer:.3f}')
         for ch in range(3):
             on_off = 'ON' if self._psu_on_off[ch] else 'OFF'
@@ -213,7 +291,6 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 #   8 - CH1 analog, waveform
 #   9 - CH2 analog, waveform
 
-
     def update_measurements_and_triggers(self, read_inst=True):
         """Read current values, update control panel display, return the values."""
         if read_inst:
@@ -232,9 +309,9 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         triggers['CH2On'] = {'name': 'CH2 On',
                              'val':  self._psu_on_off[1]}
         triggers['CH1CV'] = {'name': 'CH1 CV Mode',
-                             'val':  not self._psu_cc[0]}
+                             'val':  not self._psu_cc[0]}  # noqa: E272
         triggers['CH2CV'] = {'name': 'CH2 CV Mode',
-                             'val':  not self._psu_cc[1]}
+                             'val':  not self._psu_cc[1]}  # noqa: E272
         triggers['CH1CC'] = {'name': 'CH1 CC Mode',
                              'val':  self._psu_cc[0]}
         triggers['CH2CC'] = {'name': 'CH2 CC Mode',
@@ -253,9 +330,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 else:
                     voltage = self._inst.measure_voltage(ch+1)
                     w.setText(f'{voltage:6.3f} V')
-            measurements[f'Voltage{ch+1}'] = {'name':  f'CH{ch+1} Voltage',
-                                              'unit':  'V',
-                                              'val':   voltage}
+            measurements[f'Voltage{ch+1}'] = {'name':   f'CH{ch+1} Voltage',
+                                              'unit':   'V',
+                                              'format': '6.3f',
+                                              'val':    voltage}
 
             current = None
             if read_inst:
@@ -265,9 +343,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 else:
                     current = self._inst.measure_current(ch+1)
                     w.setText(f'{current:5.3f} A')
-            measurements[f'Current{ch+1}'] = {'name':  f'CH{ch+1} Current',
-                                              'unit':  'A',
-                                              'val':   current}
+            measurements[f'Current{ch+1}'] = {'name':   f'CH{ch+1} Current',
+                                              'unit':   'A',
+                                              'format': '5.3f',
+                                              'val':    current}
 
             power = None
             if read_inst:
@@ -277,9 +356,10 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 else:
                     power = self._inst.measure_power(ch+1)
                     w.setText(f'{power:6.3f} W')
-            measurements[f'Power{ch+1}'] = {'name':  f'CH{ch+1} Power',
-                                            'unit':  'W',
-                                            'val':   power}
+            measurements[f'Power{ch+1}'] = {'name':   f'CH{ch+1} Power',
+                                            'unit':   'W',
+                                            'format': '6.3f',
+                                            'val':    power}
 
         self._cached_measurements = measurements
         self._cached_triggers = triggers
@@ -307,15 +387,19 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 
         ### Add to Device menu
 
+        self._menubar_device.addSeparator()
         action = QAction('&Independent', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+I'))
         self._widget_registry['IndependentAction'] = action
         action.triggered.connect(self._menu_do_device_independent)
         self._menubar_device.addAction(action)
         action = QAction('&Series', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+S'))
         self._widget_registry['SeriesAction'] = action
         action.triggered.connect(self._menu_do_device_series)
         self._menubar_device.addAction(action)
         action = QAction('&Parallel', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+P'))
         self._widget_registry['ParallelAction'] = action
         action.triggered.connect(self._menu_do_device_parallel)
         self._menubar_device.addAction(action)
@@ -323,6 +407,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         ### Add to View menu
 
         action = QAction('&Min/Max Limits', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+1'))
         self._widget_registry['MinMaxAction'] = action
         action.triggered.connect(self._menu_do_view_minmax_limits)
         self._menubar_view.addAction(action)
@@ -331,22 +416,27 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # action.triggered.connect(self._menu_do_view_adjustment_knobs)
         # self._menubar_view.addAction(action)
         action = QAction('&Set Points', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+2'))
         self._widget_registry['SetPointsAction'] = action
         action.triggered.connect(self._menu_do_view_setpoints)
         self._menubar_view.addAction(action)
         action = QAction('&Presets', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+3'))
         self._widget_registry['PresetsAction'] = action
         action.triggered.connect(self._menu_do_view_presets)
         self._menubar_view.addAction(action)
         action = QAction('&Timer', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+4'))
         self._widget_registry['TimerAction'] = action
         action.triggered.connect(self._menu_do_view_timer)
         self._menubar_view.addAction(action)
         action = QAction('&Output On/Off', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+5'))
         self._widget_registry['OutputOnOffAction'] = action
         action.triggered.connect(self._menu_do_view_output_on_off)
         self._menubar_view.addAction(action)
         action = QAction('&Measurements', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+6'))
         self._widget_registry['MeasurementsAction'] = action
         action.triggered.connect(self._menu_do_view_measurements)
         self._menubar_view.addAction(action)
@@ -364,6 +454,11 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         frame = self._init_widgets_add_channel(1)
         self._widget_registry['FrameCH2'] = frame
         main_horiz_layout.addWidget(frame)
+
+        shortcut = QShortcut(QKeySequence('Alt+N'), self)
+        shortcut.activated.connect(self._on_click_outputs_on)
+        shortcut = QShortcut(QKeySequence('Alt+F'), self)
+        shortcut.activated.connect(self._on_click_outputs_off)
 
         self._menu_do_view_minmax_limits(False)
         self._menu_do_view_setpoints(True)
@@ -383,7 +478,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             bgcolor = '#a0ff80'
         else:
             bgcolor = '#ffff20'
-        ss = f"""\QGroupBox::title {{ subcontrol-position: top center;
+        ss = f"""QGroupBox::title {{ subcontrol-position: top center;
                                       background-color: {bgcolor}; color: black; }}"""
         frame.setStyleSheet(ss)
 
@@ -407,8 +502,8 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             self._widgets_minmax_limits[ch].append(w)
             for mm_num, mm in enumerate(('Min', 'Max')):
                 layoutg2.addWidget(QLabel(f'{cv} {mm}:'), mm_num, 0,
-                                          Qt.AlignmentFlag.AlignLeft)
-                input = DoubleSpeedSpinBox(1.)
+                                   Qt.AlignmentFlag.AlignLeft)
+                input = MultiSpeedSpinBox(1.)
                 ss = """min-width: 4em; max-width: 4em;"""
                 input.setStyleSheet(ss)
                 input.wid = (mm, cv, ch)
@@ -436,7 +531,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 
             # Main V/C inputs
             ss = """font-size: 30px; min-width: 4em; max-width: 4em;"""
-            input = DoubleSpeedSpinBox(1.)
+            input = MultiSpeedSpinBox(1.)
             input.wid = ('SetPoint', cv, ch)
             self._widgets_setpoints[ch].append(input)
             input.setStyleSheet(ss)
@@ -490,7 +585,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
                 QPushButton::pressed { border: 3px solid black; }"""
         for preset_num in range(6):
             row, column = divmod(preset_num, 2)
-            button = LongClickButton(f'32.000V / 3.200A',
+            button = LongClickButton('32.000V / 3.200A',
                                      self._on_preset_clicked,
                                      self._on_preset_long_click)
             button.wid = (ch, preset_num)
@@ -513,7 +608,9 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 
         row_layout.addStretch()
         table = QTableView(alternatingRowColors=True)
-        f = lambda *args, **kwargs: self._on_timer_table_change(ch, *args, **kwargs)
+
+        def f(*args, **kwargs):
+            self._on_timer_table_change(ch, *args, **kwargs)
         table.setModel(ListTableModel(f))
         row_layout.addWidget(table)
         table.setStyleSheet(_STYLE_SHEET['TimerTable'][self._style_env])
@@ -565,12 +662,18 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         # On/Off button
         w = QWidget()
         vert_layout.addWidget(w)
-        self._widgets_on_off_buttons.append(w)
+        self._widgets_on_off_buttons[ch].append(w)
         layouth = QHBoxLayout(w)
         layouth.addStretch()
         button = QPushButton('OUTPUT ON (CV)')
         button.wid = ch
         button.clicked.connect(self._on_click_output_on_off)
+        if ch == 0:
+            shortcut = QShortcut(QKeySequence('Alt+A'), self)
+        else:
+            shortcut = QShortcut(QKeySequence('Alt+B'), self)
+        shortcut.wid = ch
+        shortcut.activated.connect(self._on_click_output_on_off)
         layouth.addWidget(button)
         self._widget_registry[f'OutputOnOff{ch}'] = button
         layouth.addStretch()
@@ -588,7 +691,7 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
         vert_layout.addWidget(w)
         w.setStyleSheet('background: black;')
         layoutv = QVBoxLayout(w)
-        self._widgets_measurements.append(w)
+        self._widgets_measurements[ch].append(w)
 
         ss = """font-size: 30px; font-weight: bold; font-family: "Courier New";
                 min-width: 4.5em; color: yellow;
@@ -628,17 +731,18 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
 
     def _menu_do_about(self):
         """Show the About box."""
+        supported = ', '.join(self._inst.supported_instruments())
         msg = f"""Siglent SPD3303X-series instrument interface.
 
 Copyright 2022, Robert S. French.
 
-Supported instruments: SPD3303X, SPD3303X-E.
+Supported instruments: {supported}.
 
-Connected to {self._inst._resource_name}
-    {self._inst._model}
-    S/N {self._inst._serial_number}
-    HW {self._inst._hardware_version}
-    FW {self._inst._firmware_version}"""
+Connected to {self._inst.resource_name}
+    {self._inst.model}
+    S/N {self._inst.serial_number}
+    HW {self._inst.hardware_version}
+    FW {self._inst.firmware_version}"""
 
         QMessageBox.about(self, 'About', msg)
 
@@ -978,6 +1082,18 @@ Connected to {self._inst._resource_name}
             self._psu_on_off[1] = state
         self._update_output_state(ch, state)
 
+    def _on_click_outputs_on(self):
+        """Handle ALL OUTPUTS ON."""
+        self._update_output_state(0, True)
+        if self._psu_mode == 'I':
+            self._update_output_state(1, True)
+
+    def _on_click_outputs_off(self):
+        """Handle ALL OUTPUTS OFF."""
+        self._update_output_state(0, False)
+        if self._psu_mode == 'I':
+            self._update_output_state(1, False)
+
     def _on_click_timer_on_off(self):
         """Handle clicking on one of the TIMER buttons."""
         if self._disable_callbacks: # Prevent recursive calls
@@ -1005,10 +1121,10 @@ Connected to {self._inst._resource_name}
             bt = self._widget_registry[f'OutputOnOff{ch}']
             if self._psu_on_off[ch]:
                 if self._psu_cc[ch]:
-                    bt.setText(f'OUTPUT ON (CC)')
+                    bt.setText('OUTPUT ON (CC)')
                     bg_color = '#ffc0c0'
                 else:
-                    bt.setText(f'OUTPUT ON (CV)')
+                    bt.setText('OUTPUT ON (CV)')
                     bg_color = '#c0ffb0'
             else:
                 bt.setText('OUTPUT OFF')
@@ -1046,7 +1162,7 @@ Connected to {self._inst._resource_name}
             # Timer entry has non-zero duration. If we don't do this, and try to
             # start the timer, the SPD will beep and show an error.
             bt.setEnabled(self._psu_mode == 'I' and
-                any([x[2] for x in self._psu_timer_params[ch]]))
+                          any([x[2] for x in self._psu_timer_params[ch]]))
 
     def _on_click_enable_measurements(self):
         """Handle clicking on an enable measurements checkbox."""
@@ -1060,7 +1176,6 @@ Connected to {self._inst._resource_name}
                 self._enable_measurement_c = cb.isChecked()
             case 'P':
                 self._enable_measurement_p = cb.isChecked()
-        self._update_param_state_and_inst(new_param_state)
         self._update_widgets()
 
     ################################
@@ -1128,11 +1243,6 @@ Connected to {self._inst._resource_name}
 
         self._update_timer_on_off_buttons()
         self._update_timer_table_graphs()
-
-        # Update the Enable Measurements checkboxes
-        # self._widget_registry['EnableV'].setChecked(self._enable_measurement_v)
-        # self._widget_registry['EnableC'].setChecked(self._enable_measurement_c)
-        # self._widget_registry['EnableP'].setChecked(self._enable_measurement_p)
 
         for ch in range(2):
             enabled = not self._timer_mode_running[ch]
@@ -1260,62 +1370,6 @@ Connected to {self._inst._resource_name}
         if update:
             self._update_widgets()
         self._update_timer_table_graphs(timer_step_only=True)
-
-
-##########################################################################################
-##########################################################################################
-##########################################################################################
-
-
-class InstrumentSiglentSPD3303(Device4882):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._long_name = f'SPD3303 @ {self._resource_name}'
-        if self._resource_name.startswith('TCPIP'):
-            ips = self._resource_name.split('.') # This only works with TCP!
-            self._name = f'SPD{ips[-1]}'
-        else:
-            self._name = 'SPD'
-
-    def connect(self, *args, **kwargs):
-        super().connect(*args, **kwargs)
-        idn = self.idn().split(',')
-        if len(idn) != 4:
-            assert ValueError
-        (self._manufacturer,
-         self._model,
-         self._serial_number,
-         self._firmware_version,
-         self._hardware_version) = idn
-        if self._manufacturer != 'Siglent Technologies':
-            assert ValueError
-        if not self._model.startswith('SPD'):
-            assert ValueError
-        self._long_name = f'{self._model} @ {self._resource_name}'
-
-    def disconnect(self, *args, **kwargs):
-        super().disconnect(*args, **kwargs)
-
-    def configure_widget(self, main_window):
-        return InstrumentSiglentSPD3303ConfigureWidget(main_window, self)
-
-    def set_input_state(self, val):
-        self._validator_1(val)
-        self.write(f':INPUT:STATE {val}')
-
-    def measure_voltage(self, ch):
-        return float(self.query(f'MEAS:VOLT? CH{ch}'))
-
-    def measure_current(self, ch):
-        return float(self.query(f'MEAS:CURR? CH{ch}'))
-
-    def measure_power(self, ch):
-        return float(self.query(f'MEAS:POWER? CH{ch}'))
-
-    def measure_vcp(self, ch):
-        return (self.measure_voltage(ch),
-                self.measure_current(ch),
-                self.measure_power(ch))
 
 
 """

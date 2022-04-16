@@ -1,8 +1,3 @@
-- Current status:
-
-- Tab focus?
-- Axes occasionally don't update in plot window
-
 ** PyInstaller **
 
 pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6 --hidden-import pyvisa_py --noconfirm --onefile --windowed
@@ -11,31 +6,56 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** General **
 
-- Add README file
+- Rename to "conductor"
+- Create new GitHub account
+- Look into tab focus
+- Write help for each instrument
+- Add overall README file
 - Add error checking to opening resource and other VISA accesses
-- Add menu to change device short name
+- Add controllable parameters to each instrument (e.g. voltage and current level)
 
 ** Acquisition **
 
 - Save to CSV
 - Load from CSV
+- Real-time save to CSV
 
 ** XY Plotting **
 
 - Bug - sharing Y axis doesn't refresh the position of the Y axis label
+- Bug - Axes occasionally don't update in plot window
 - Implement better way to handle breaks between time sequences instead of just inserting
   a dummy NaN. Maybe separate lists of measurements that are then stitched together?
   Right now if there's a segment with only one measurement it isn't drawn.
 
+** Histogram View **
+
+** Measurements/Statistics View **
+
+** Automated Control **
+
+- Add ability to step through various curves while changing parameters for an instrument
+  with defined min/max range, step size, and step time
+
+** Misc **
+
+- Virtual instruments that do math, generate curves, etc
+- Instruments sampling at different rates
+- Multi-threading for increased performance, or checking the event queue in
+between measurements
+
 ** SDL1000 **
 
-Not implemented:
-  - Program mode (and stop on fail)
+- Program mode (and stop on fail)
 
 ** SPD **
 
-Not implemented:
-  - Channel 3 indicator
+- Channel 3 indicator and control
+- Maybe figure out a way to enable/disable measurements
+
+** SDM **
+
+Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
 
 ** SDS **
 
@@ -44,20 +64,3 @@ Siglent Technologies,SDS1204X-E,SDSMMEBQ4R5097,8.2.6.1.37R2
 ** SDG **
 
 Siglent Technologies,SDG1062X,SDG1XCAQ4R3005,1.01.01.33R1B6
-
-** SDM **
-
-Siglent Technologies,SDM3055,SDM35FAQ1R1838,1.01.01.25
-
-** Histogram View **
-
-** Running Statistics **
-
-** Measurement **
-
-** Misc **
-
-- Virtual instruments that do math, generate curves, etc
-- Instruments sampling at different rates
-- Multi-threading for increased performance, or checking the event queue in
-between measurements

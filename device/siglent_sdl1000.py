@@ -27,9 +27,13 @@
 ################################################################################
 
 ################################################################################
-# This module contains two basic sections. The GUI for the control widget is
-# specified by the InstrumentSiglentSDL1000ConfigureWidget class. The internal
-# instrument driver is specified by the InstrumentSiglentSDL1000 class.
+# This module contains two basic sections. The internal instrument driver is
+# specified by the InstrumentSiglentSDL1000 class. The GUI for the control
+# widget is specified by the InstrumentSiglentSDL1000ConfigureWidget class.
+#
+# Hidden accelerator keys:
+#   Alt+L       Load ON/OFF
+#   Alt+T       Trigger
 #
 # Some general notes:
 #
@@ -99,10 +103,8 @@ import re
 import time
 
 from PyQt6.QtWidgets import (QWidget,
-                             QAbstractSpinBox,
                              QButtonGroup,
                              QCheckBox,
-                             QDoubleSpinBox,
                              QFileDialog,
                              QGridLayout,
                              QGroupBox,
@@ -115,7 +117,7 @@ from PyQt6.QtWidgets import (QWidget,
                              QTableView,
                              QVBoxLayout)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtGui import QAction, QKeySequence, QShortcut
 
 import pyqtgraph as pg
 
@@ -123,7 +125,119 @@ from .device import Device4882
 from .config_widget_base import (ConfigureWidgetBase,
                                  DoubleSpinBoxDelegate,
                                  ListTableModel,
+                                 MultiSpeedSpinBox,
                                  PrintableTextDialog)
+
+
+class InstrumentSiglentSDL1000(Device4882):
+    """Controller for SDL1000-series devices."""
+
+    @classmethod
+    def idn_mapping(cls):
+        return {
+            ('Siglent Technologies', 'SDL1020X'):   InstrumentSiglentSDL1000,
+            ('Siglent Technologies', 'SDL1020X-E'): InstrumentSiglentSDL1000,
+            ('Siglent Technologies', 'SDL1030X'):   InstrumentSiglentSDL1000,
+            ('Siglent Technologies', 'SDL1030X-E'): InstrumentSiglentSDL1000
+        }
+
+    @classmethod
+    def supported_instruments(cls):
+        return (
+            'SDL1020X',
+            'SDL1020X-E',
+            'SDL1030X',
+            'SDL1030X-E'
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._long_name = f'SDL1000 @ {self._resource_name}'
+        if self._resource_name.startswith('TCPIP'):
+            ips = self._resource_name.split('.') # This only works with TCP!
+            self._name = f'SDL{ips[-1]}'
+        else:
+            self._name = 'SDL'
+
+    def connect(self, *args, **kwargs):
+        """Connect to the instrument and set it to remote state."""
+        super().connect(*args, **kwargs)
+        idn = self.idn().split(',')
+        if len(idn) != 4:
+            assert ValueError
+        (self._manufacturer,
+         self._model,
+         self._serial_number,
+         self._firmware_version) = idn
+        if self._manufacturer != 'Siglent Technologies':
+            assert ValueError
+        if not self._model.startswith('SDL'):
+            assert ValueError
+        self._long_name = f'{self._model} @ {self._resource_name}'
+        self._max_power = 300 if self._model in ('SDL1030X-E', 'SDL1030X') else 200
+        self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
+
+    def disconnect(self, *args, **kwargs):
+        """Disconnect from the instrument and turn off its remote state."""
+        self.write(':SYST:REMOTE:STATE 0')
+        super().disconnect(*args, **kwargs)
+
+    def configure_widget(self, main_window):
+        """Return the configuration widget for this instrument."""
+        return InstrumentSiglentSDL1000ConfigureWidget(main_window, self)
+
+    def set_input_state(self, val):
+        """Turn the load on or off."""
+        self._validator_1(val)
+        self.write(f':INPUT:STATE {val}')
+
+    def measure_voltage(self):
+        """Return the measured voltage as a float."""
+        return float(self.query('MEAS:VOLT?'))
+
+    def measure_current(self):
+        """Return the measured current as a float."""
+        return float(self.query('MEAS:CURR?'))
+
+    def measure_power(self):
+        """Return the measured power as a float."""
+        return float(self.query('MEAS:POW?'))
+
+    def measure_trise(self):
+        """Return the measured Trise as a float."""
+        return float(self.query('TIME:TEST:RISE?'))
+
+    def measure_tfall(self):
+        """Return the measured Tfall as a float."""
+        return float(self.query('TIME:TEST:FALL?'))
+
+    def measure_resistance(self):
+        """Return the measured resistance as a float."""
+        return float(self.query('MEAS:RES?'))
+
+    def measure_battery_time(self):
+        """Return the battery discharge time (in seconds) as a float."""
+        return float(self.query(':BATTERY:DISCHA:TIMER?'))
+
+    def measure_battery_capacity(self):
+        """Return the battery discharge capacity (in Ah) as a float."""
+        return float(self.query(':BATTERY:DISCHA:CAP?')) / 1000
+
+    def measure_battery_add_capacity(self):
+        """Return the battery discharge additional capacity (in Ah) as a float."""
+        return float(self.query(':BATTERY:ADDCAP?')) / 1000
+
+    def measure_vcpr(self):
+        """Return measured Voltage, Current, Power, and Resistance."""
+        return (self.measure_voltage(),
+                self.measure_current(),
+                self.measure_power(),
+                self.measure_resistance())
+
+
+##########################################################################################
+##########################################################################################
+##########################################################################################
 
 
 # Style sheets for different operating systems
@@ -245,7 +359,6 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
         {'widgets': ('~MainParametersLabel_.*', '~MainParameters_.*',
                      '~AuxParametersLabel_.*', '~AuxParameters_.*',
                      '~EnableTRise', '~EnableTFall',
-                     '~MeasureTRise', '~MeasureTFall',
                      '~MeasureBatt.*', '~ClearAddCap'),
          'mode_name': None,
          'params': (
@@ -282,7 +395,7 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
          )
         },
     ('Basic', 'Voltage'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
+        {'widgets': ('EnableTRise', 'EnableTFall'),
          'mode_name': 'VOLTAGE',
          'params': (
             ('IRANGE',                    'r', None, 'Range_Current_.*'),
@@ -293,7 +406,7 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
           )
         },
     ('Basic', 'Current'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
+        {'widgets': ('EnableTRise', 'EnableTFall'),
          'mode_name': 'CURRENT',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -306,7 +419,7 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
           )
         },
     ('Basic', 'Power'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
+        {'widgets': ('EnableTRise', 'EnableTFall'),
          'mode_name': 'POWER',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -317,7 +430,7 @@ _SDL_MODE_PARAMS = {  # noqa: E121,E501
           )
         },
     ('Basic', 'Resistance'):
-        {'widgets': ('EnableTRise', 'EnableTFall', 'MeasureTRise', 'MeasureTFall'),
+        {'widgets': ('EnableTRise', 'EnableTFall'),
          'mode_name': 'RESISTANCE',
          'params': (
             ('IRANGE',            'r', None, 'Range_Current_.*'),
@@ -806,9 +919,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                 w.setText(f'{voltage:10.6f} V')
             else:
                 w.setText('---   V')
-        measurements['Voltage'] = {'name': 'Voltage',
-                                   'unit': 'V',
-                                   'val':  voltage}
+        measurements['Voltage'] = {'name':   'Voltage',
+                                   'unit':   'V',
+                                   'format': '10.6f',
+                                   'val':    voltage}
 
         current = None
         if read_inst:
@@ -822,9 +936,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'{current:10.6f} A')
             else:
                 w.setText('---   A')
-        measurements['Current'] = {'name': 'Current',
-                                   'unit': 'A',
-                                   'val':  current}
+        measurements['Current'] = {'name':   'Current',
+                                   'unit':   'A',
+                                   'format': '10.6f',
+                                   'val':    current}
 
         power = None
         if read_inst:
@@ -838,9 +953,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'{power:10.6f} W')
             else:
                 w.setText('---   W')
-        measurements['Power'] = {'name': 'Power',
-                                 'unit': 'W',
-                                 'val':  power}
+        measurements['Power'] = {'name':   'Power',
+                                 'unit':   'W',
+                                 'format': '10.6f',
+                                 'val':    power}
 
         resistance = None
         if read_inst:
@@ -866,9 +982,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'{fmt} \u2126' % resistance)
             else:
                 w.setText('---   \u2126')
-        measurements['Resistance'] = {'name': 'Resistance',
-                                      'unit': '\u2126',
-                                      'val':  resistance}
+        measurements['Resistance'] = {'name':   'Resistance',
+                                      'unit':   '\u2126',
+                                      'format': '13.6f',
+                                      'val':    resistance}
 
         trise = None
         if read_inst:
@@ -882,9 +999,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'TRise: {trise:7.3f} s')
             else:
                 w.setText('TRise:   ---   s')
-        measurements['TRise'] = {'name':  'TRise',
-                                 'unit':  's',
-                                 'val':   trise}
+        measurements['TRise'] = {'name':   'TRise',
+                                 'unit':   's',
+                                 'format': '7.3f',
+                                 'val':    trise}
 
         tfall = None
         if read_inst:
@@ -898,9 +1016,10 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     w.setText(f'TFall: {tfall:7.3f} s')
             else:
                 w.setText('TFall:   ---   s')
-        measurements['TFall'] = {'name':  'TFall',
-                                 'unit':  's',
-                                 'val':   tfall}
+        measurements['TFall'] = {'name':   'TFall',
+                                 'unit':   's',
+                                 'format': '7.3f',
+                                 'val':    tfall}
 
         disch_time = None
         disch_cap = None
@@ -933,18 +1052,22 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
                     total_cap = add_cap
                 w = self._widget_registry['MeasureBattTotalCap']
                 w.setText(f'Total Cap: {total_cap:7.3f} Ah')
-        measurements['Discharge Time'] = {'name': 'Batt Dischg Time',
-                                          'unit': 's',
-                                          'val':  disch_time}
-        measurements['Capacity'] =       {'name': 'Batt Capacity', # noqa: E222
-                                          'unit': 'Ah',
-                                          'val':  disch_cap}
-        measurements['Addl Capacity'] =  {'name': 'Batt Addl Cap', # noqa: E222
-                                          'unit': 'Ah',
-                                          'val':  add_cap}
-        measurements['Total Capacity'] = {'name': 'Batt Total Cap',
-                                          'unit': 'Ah',
-                                          'val':  total_cap}
+        measurements['Discharge Time'] = {'name':   'Batt Dischg Time',
+                                          'unit':   's',
+                                          'format': '8d',
+                                          'val':    disch_time}
+        measurements['Capacity'] =       {'name':   'Batt Capacity', # noqa: E222
+                                          'unit':   'Ah',
+                                          'format': '7.3f',
+                                          'val':    disch_cap}
+        measurements['Addl Capacity'] =  {'name':   'Batt Addl Cap', # noqa: E222
+                                          'unit':   'Ah',
+                                          'format': '7.3f',
+                                          'val':    add_cap}
+        measurements['Total Capacity'] = {'name':   'Batt Total Cap',
+                                          'unit':   'Ah',
+                                          'format': '7.3f',
+                                          'val':    total_cap}
 
         self._cached_measurements = measurements
         self._cached_triggers = triggers
@@ -972,25 +1095,31 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         ### Add to Device menu
 
+        self._menubar_device.addSeparator()
         action = QAction('Show last &battery report...', self)
+        action.setShortcut(QKeySequence('Ctrl+B'))
         action.triggered.connect(self._menu_do_device_batt_report)
         self._menubar_device.addAction(action)
 
         ### Add to View menu
 
         action = QAction('&Parameters', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+1'))
         action.setChecked(True)
         action.triggered.connect(self._menu_do_view_parameters)
         self._menubar_view.addAction(action)
         action = QAction('&Global Parameters', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+2'))
         action.setChecked(False)
         action.triggered.connect(self._menu_do_view_global_parameters)
         self._menubar_view.addAction(action)
         action = QAction('&Load and Trigger', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+3'))
         action.setChecked(True)
         action.triggered.connect(self._menu_do_view_load_trigger)
         self._menubar_view.addAction(action)
         action = QAction('&Measurements', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+4'))
         action.setChecked(True)
         action.triggered.connect(self._menu_do_view_measurements)
         self._menubar_view.addAction(action)
@@ -1319,6 +1448,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         w = QPushButton('') # LOAD ON/OFF
         w.clicked.connect(self._on_click_load_on_off)
+        shortcut = QShortcut(QKeySequence('Alt+L'), self)
+        shortcut.activated.connect(self._on_click_load_on_off)
         row_layout.addWidget(w)
         self._widget_registry['LoadONOFF'] = w
         self._update_load_onoff_button(False) # Sets the style sheet
@@ -1356,6 +1487,8 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
         w = QPushButton('TRIG\u25CE')
         w.clicked.connect(self._on_click_trigger)
+        shortcut = QShortcut(QKeySequence('Alt+T'), self)
+        shortcut.activated.connect(self._on_click_trigger)
         w.setStyleSheet(_STYLE_SHEET['TriggerButton'][self._style_env])
         row_layout.addWidget(w)
         self._widget_registry['Trigger'] = w
@@ -1545,13 +1678,12 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
             layouth = QHBoxLayout()
             label = QLabel(display+':')
             layouth.addWidget(label)
-            input = QDoubleSpinBox()
+            input = MultiSpeedSpinBox(1.)
             input.wid = (param_name, scpi)
             if special_text:
                 input.setSpecialValueText(special_text)
             input.setAlignment(Qt.AlignmentFlag.AlignRight)
             input.setDecimals(3)
-            input.setStepType(QAbstractSpinBox.StepType.AdaptiveDecimalStepType)
             input.setAccelerated(True)
             if unit is not None:
                 input.setSuffix(' '+unit)
@@ -1574,16 +1706,17 @@ class InstrumentSiglentSDL1000ConfigureWidget(ConfigureWidgetBase):
 
     def _menu_do_about(self):
         """Show the About box."""
+        supported = ', '.join(self._inst.supported_instruments())
         msg = f"""Siglent SDL1000-series instrument interface.
 
 Copyright 2022, Robert S. French.
 
-Supported instruments: SDL1020X, SDL1020X-E, SDL1030X, SDL1030X-E.
+Supported instruments: {supported}.
 
-Connected to {self._inst._resource_name}
-    {self._inst._model}
-    S/N {self._inst._serial_number}
-    FW {self._inst._firmware_version}"""
+Connected to {self._inst.resource_name}
+    {self._inst.model}
+    S/N {self._inst.serial_number}
+    FW {self._inst.firmware_version}"""
 
         QMessageBox.about(self, 'About', msg)
 
@@ -2063,6 +2196,9 @@ Connected to {self._inst._resource_name}
             return
         state = 1-self._param_state[':INPUT:STATE']
         self._update_load_state(state) # Also updates the button
+        # This prevents a UI flicker in the measurements due to Trise/Tfall being
+        # shown and then later hidden
+        self._update_widgets()
 
     def _update_load_onoff_button(self, state=None):
         """Update the style of the LOAD button based on current or given state."""
@@ -2121,6 +2257,9 @@ Connected to {self._inst._resource_name}
     def _on_click_trigger(self):
         """Handle clicking on the main trigger button."""
         if self._disable_callbacks: # Prevent recursive calls
+            return
+        if not self._widget_registry['Trigger'].isEnabled():
+            # Necessary for ALT+T shortcut
             return
         self._inst.trg()
         if self._cur_overall_mode == 'List':
@@ -2629,13 +2768,17 @@ Connected to {self._inst._resource_name}
         # user. Note they will have been turned on in the code above as part of the
         # normal widget actions for Basic mode, so we only have to worry about hiding
         # them here, not showing them.
-        if not self._enable_measurement_trise and not self._enable_measurement_tfall:
+        if (self._cur_overall_mode == 'Basic' and
+                (self._enable_measurement_trise or self._enable_measurement_tfall)):
+            self._widget_registry['MeasureTRise'].show()
+            self._widget_registry['MeasureTFall'].show()
+        else:
             self._widget_registry['MeasureTRise'].hide()
             self._widget_registry['MeasureTFall'].hide()
 
         # Finally, we don't allow parameters to be modified during certain modes
         if (self._cur_overall_mode in ('Battery', 'List') and
-            self._param_state[':INPUT:STATE']):
+                self._param_state[':INPUT:STATE']):
             # Battery or List mode is running
             self._widget_registry['FrameMode'].setEnabled(False)
             self._widget_registry['FrameConstant'].setEnabled(False)
@@ -2909,98 +3052,6 @@ Reset Addl Cap & Test Log to start fresh."""
                 cap = self._batt_log_caps[i]
                 ret += f'Capacity: {cap:.3f}Ah\n'
         return ret
-
-
-##########################################################################################
-##########################################################################################
-##########################################################################################
-
-
-class InstrumentSiglentSDL1000(Device4882):
-    """Controller for SDL1000-series devices."""
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._long_name = f'SDL1000 @ {self._resource_name}'
-        if self._resource_name.startswith('TCPIP'):
-            ips = self._resource_name.split('.') # This only works with TCP!
-            self._name = f'SDL{ips[-1]}'
-        else:
-            self._name = 'SDL'
-
-    def connect(self, *args, **kwargs):
-        """Connect to the instrument and set it to remote state."""
-        super().connect(*args, **kwargs)
-        idn = self.idn().split(',')
-        if len(idn) != 4:
-            assert ValueError
-        (self._manufacturer,
-         self._model,
-         self._serial_number,
-         self._firmware_version) = idn
-        if self._manufacturer != 'Siglent Technologies':
-            assert ValueError
-        if not self._model.startswith('SDL'):
-            assert ValueError
-        self._long_name = f'{self._model} @ {self._resource_name}'
-        self._max_power = 300 if self._model in ('SDL1030X-E', 'SDL1030X') else 200
-        self.write(':SYST:REMOTE:STATE 1') # Lock the keyboard
-
-    def disconnect(self, *args, **kwargs):
-        """Disconnect from the instrument and turn off its remote state."""
-        self.write(':SYST:REMOTE:STATE 0')
-        super().disconnect(*args, **kwargs)
-
-    def configure_widget(self, main_window):
-        """Return the configuration widget for this instrument."""
-        return InstrumentSiglentSDL1000ConfigureWidget(main_window, self)
-
-    def set_input_state(self, val):
-        """Turn the load on or off."""
-        self._validator_1(val)
-        self.write(f':INPUT:STATE {val}')
-
-    def measure_voltage(self):
-        """Return the measured voltage as a float."""
-        return float(self.query('MEAS:VOLT?'))
-
-    def measure_current(self):
-        """Return the measured current as a float."""
-        return float(self.query('MEAS:CURR?'))
-
-    def measure_power(self):
-        """Return the measured power as a float."""
-        return float(self.query('MEAS:POW?'))
-
-    def measure_trise(self):
-        """Return the measured Trise as a float."""
-        return float(self.query('TIME:TEST:RISE?'))
-
-    def measure_tfall(self):
-        """Return the measured Tfall as a float."""
-        return float(self.query('TIME:TEST:FALL?'))
-
-    def measure_resistance(self):
-        """Return the measured resistance as a float."""
-        return float(self.query('MEAS:RES?'))
-
-    def measure_battery_time(self):
-        """Return the battery discharge time (in seconds) as a float."""
-        return float(self.query(':BATTERY:DISCHA:TIMER?'))
-
-    def measure_battery_capacity(self):
-        """Return the battery discharge capacity (in Ah) as a float."""
-        return float(self.query(':BATTERY:DISCHA:CAP?')) / 1000
-
-    def measure_battery_add_capacity(self):
-        """Return the battery discharge additional capacity (in Ah) as a float."""
-        return float(self.query(':BATTERY:ADDCAP?')) / 1000
-
-    def measure_vcpr(self):
-        """Return measured Voltage, Current, Power, and Resistance."""
-        return (self.measure_voltage(),
-                self.measure_current(),
-                self.measure_power(),
-                self.measure_resistance())
 
 
 """

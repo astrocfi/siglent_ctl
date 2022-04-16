@@ -28,10 +28,11 @@ from PyQt6.QtWidgets import (QCheckBox,
                              QGroupBox,
                              QHBoxLayout,
                              QLabel,
+                             QMenuBar,
                              QPushButton,
                              QVBoxLayout,
                              QWidget)
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QAction, QColor, QKeySequence
 from PyQt6.QtCore import Qt
 
 import numpy as np
@@ -106,6 +107,9 @@ class PlotXYWindow(QWidget):
         self._plot_y_share_axes = False
         self._plot_duration = 60 # Default to "1 min"
 
+        self._row_x_widgets = []
+        self._row_y_widgets = [[], []]
+
         ### Layout the widgets
 
         layoutv = QVBoxLayout()
@@ -116,15 +120,30 @@ class PlotXYWindow(QWidget):
 
         ### Create the menu bar
 
-        # self._menubar = QMenuBar()
-        # self._menubar.setStyleSheet('margin: 0px; padding: 0px;')
-        #
-        # self._menubar_help = self._menubar.addMenu('&Help')
-        # action = QAction('&About', self)
-        # # action.triggered.connect(self._menu_do_about)
-        # self._menubar_help.addAction(action)
-        #
-        # layoutv.addWidget(self._menubar)
+        self._menubar = QMenuBar()
+        self._menubar.setStyleSheet('margin: 0px; padding: 0px;')
+
+        self._menubar_view = self._menubar.addMenu('&View')
+        action = QAction('Show &X row', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+1'))
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_show_row_x)
+        self._x_row_action = action
+        self._menubar_view.addAction(action)
+        action = QAction('Show &first Y row', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+2'))
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_show_row_y1)
+        self._y1_row_action = action
+        self._menubar_view.addAction(action)
+        action = QAction('Show &second Y row', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+3'))
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_show_row_y2)
+        self._y2_row_action = action
+        self._menubar_view.addAction(action)
+
+        layoutv.addWidget(self._menubar)
 
         ### The plot
 
@@ -171,7 +190,7 @@ class PlotXYWindow(QWidget):
             self._plot_items.append(pdi)
             self._plot_y_sources.append(None)
 
-        # Do this last so all the variables are initialized before it's call the
+        # Do this last so all the variables are initialized before it's called the
         # first time.
         v1.sigResized.connect(self._on_update_views)
 
@@ -189,7 +208,10 @@ class PlotXYWindow(QWidget):
 
         layouth = QHBoxLayout()
         layouth.setContentsMargins(10, 10, 10, 10)
-        layoutv.addLayout(layouth)
+        w = QWidget()
+        w.setLayout(layouth)
+        self._row_x_widgets.append(w)
+        layoutv.addWidget(w)
         layouth.addStretch()
 
         # X axis selector
@@ -264,11 +286,14 @@ class PlotXYWindow(QWidget):
 
         ### The data selectors
 
+        w = QWidget()
+        self._row_y12_widget = w
         layoutg = QGridLayout()
         layoutg.setContentsMargins(11, 11, 11, 11)
         layoutg.setHorizontalSpacing(7)
         layoutg.setVerticalSpacing(0)
-        layoutv.addLayout(layoutg)
+        w.setLayout(layoutg)
+        layoutv.addWidget(w)
         for source_num in range(self._max_plot_items):
             orientation = 'Left'
             if source_num >= self._max_plot_items // 2:
@@ -278,6 +303,7 @@ class PlotXYWindow(QWidget):
             row = source_num // 4
             column = source_num % 4
             layoutg.addWidget(frame, row, column)
+            self._row_y_widgets[row].append(frame)
 
             layouth = QHBoxLayout()
             layoutf.addLayout(layouth)
@@ -330,6 +356,47 @@ class PlotXYWindow(QWidget):
             self._plot_marker_style_combos.append(combo)
 
         self._update_widgets()
+
+    def _menu_do_show_row_x(self, state):
+        """Handle Show X Row menu item."""
+        self._x_row_action.setChecked(state)
+        for w in self._row_x_widgets:
+            if state:
+                w.show()
+            else:
+                w.hide()
+
+    def _menu_do_show_row_y1(self, state):
+        """Handle Show Y1 Row menu item."""
+        self._y1_row_action.setChecked(state)
+        for w in self._row_y_widgets[0]:
+            if state:
+                w.show()
+            else:
+                w.hide()
+        # We do this because the layout grid has internal margins that still take up
+        # space even when all the internal elements are hidden, leaving an annoying
+        # blank space at the bottom of the window when both Y rows are hidden.
+        if state or self._y2_row_action.isChecked():
+            self._row_y12_widget.show()
+        else:
+            self._row_y12_widget.hide()
+
+    def _menu_do_show_row_y2(self, state):
+        """Handle Show Y2 Row menu item."""
+        self._y2_row_action.setChecked(state)
+        for w in self._row_y_widgets[1]:
+            if state:
+                w.show()
+            else:
+                w.hide()
+        # We do this because the layout grid has internal margins that still take up
+        # space even when all the internal elements are hidden, leaving an annoying
+        # blank space at the bottom of the window when both Y rows are hidden.
+        if state or self._y1_row_action.isChecked():
+            self._row_y12_widget.show()
+        else:
+            self._row_y12_widget.hide()
 
     def _on_x_axis_source(self, sel):
         """Handle selection of a new X axis source."""
@@ -483,7 +550,6 @@ class PlotXYWindow(QWidget):
                 combo.addItem(name, userData=key)
                 if key == self._plot_y_sources[source_num]:
                     combo.setCurrentIndex(index+1) # Account for "Not used"
-
 
 
     def _on_update_views(self):

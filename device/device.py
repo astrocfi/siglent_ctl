@@ -46,6 +46,7 @@ class Device(object):
         self._model = None
         self._serial_number = None
         self._firmware_version = None
+        self._hardware_version = None
         self._debug = False
 
     @property
@@ -65,8 +66,16 @@ class Device(object):
         return self._firmware_version
 
     @property
+    def hardware_version(self):
+        return self._hardware_version
+
+    @property
     def name(self):
         return self._name
+
+    @name.setter
+    def name(self, v):
+        self._name = v
 
     @property
     def long_name(self):
