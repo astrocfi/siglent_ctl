@@ -278,84 +278,98 @@ class InstrumentSiglentSPD3303ConfigureWidget(ConfigureWidgetBase):
             case 'S':
                 status |= 0x0C
 
-# SYST:STATUS? (returns hex)
-#   0 - CH1 CV/CC
-#   1 - CH2 CV/CC
-#   2,3 - 01: Ind, 10: Parallel, 11: Serial
-#   6 - TIMER1 off/on
-#   7 - TIMER2 off/on
-#   8 - CH1 analog, waveform
-#   9 - CH2 analog, waveform
+    def measurements_and_triggers(self):
+        """Get the list of measurements and triggers without reading values.
 
-    def update_measurements_and_triggers(self, read_inst=True):
-        """Read current values, update control panel display, return the values."""
-        if read_inst:
-            status = int(self._inst.query('SYST:STATUS?').replace('0x', ''), base=16)
-            self._psu_cc[0] = bool(status & 0x01)
-            self._psu_cc[1] = bool(status & 0x02)
-            self._psu_on_off[0] = bool(status & 0x10)
-            self._psu_on_off[1] = bool(status & 0x20)
-            self._update_output_on_off_buttons()
-
+        We have to do this separately from reading the instrument because this
+        function is not async while reading is, and you can't mix and match.
+        """
         measurements = {}
         triggers = {}
 
         triggers['CH1On'] = {'name': 'CH1 On',
-                             'val':  self._psu_on_off[0]}
+                             'val':  None}
         triggers['CH2On'] = {'name': 'CH2 On',
-                             'val':  self._psu_on_off[1]}
+                             'val':  None}
         triggers['CH1CV'] = {'name': 'CH1 CV Mode',
-                             'val':  not self._psu_cc[0]}  # noqa: E272
+                             'val':  None}
         triggers['CH2CV'] = {'name': 'CH2 CV Mode',
-                             'val':  not self._psu_cc[1]}  # noqa: E272
+                             'val':  None}
         triggers['CH1CC'] = {'name': 'CH1 CC Mode',
-                             'val':  self._psu_cc[0]}
+                             'val':  None}
         triggers['CH2CC'] = {'name': 'CH2 CC Mode',
-                             'val':  self._psu_cc[1]}
+                             'val':  None}
         triggers['CH1TimerRunning'] = {'name': 'CH1 Timer Running',
-                                       'val':  self._timer_mode_running[0]}
+                                       'val':  None}
         triggers['CH2TimerRunning'] = {'name': 'CH2 Timer Running',
-                                       'val':  self._timer_mode_running[1]}
+                                       'val':  None}
 
         for ch in range(2):
-            voltage = None
-            if read_inst:
-                w = self._widget_registry[f'MeasureV{ch}']
-                if not self._enable_measurement_v or not self._psu_on_off[ch]:
-                    w.setText('---  V')
-                else:
-                    voltage = self._inst.measure_voltage(ch+1)
-                    w.setText(f'{voltage:6.3f} V')
             measurements[f'Voltage{ch+1}'] = {'name':   f'CH{ch+1} Voltage',
                                               'unit':   'V',
                                               'format': '6.3f',
-                                              'val':    voltage}
-
-            current = None
-            if read_inst:
-                w = self._widget_registry[f'MeasureC{ch}']
-                if not self._enable_measurement_c or not self._psu_on_off[ch]:
-                    w.setText('---  A')
-                else:
-                    current = self._inst.measure_current(ch+1)
-                    w.setText(f'{current:5.3f} A')
+                                              'val':    None}
             measurements[f'Current{ch+1}'] = {'name':   f'CH{ch+1} Current',
                                               'unit':   'A',
                                               'format': '5.3f',
-                                              'val':    current}
-
-            power = None
-            if read_inst:
-                w = self._widget_registry[f'MeasureP{ch}']
-                if not self._enable_measurement_p or not self._psu_on_off[ch]:
-                    w.setText('---  W')
-                else:
-                    power = self._inst.measure_power(ch+1)
-                    w.setText(f'{power:6.3f} W')
+                                              'val':    None}
             measurements[f'Power{ch+1}'] = {'name':   f'CH{ch+1} Power',
                                             'unit':   'W',
                                             'format': '6.3f',
-                                            'val':    power}
+                                            'val':    None}
+
+        self._cached_measurements = measurements
+        self._cached_triggers = triggers
+        return measurements, triggers
+
+
+    async def update_measurements_and_triggers(self):
+        """Read current values, update control panel display, return the values."""
+        status = int(self._inst.query('SYST:STATUS?').replace('0x', ''), base=16)
+        self._psu_cc[0] = bool(status & 0x01)
+        self._psu_cc[1] = bool(status & 0x02)
+        self._psu_on_off[0] = bool(status & 0x10)
+        self._psu_on_off[1] = bool(status & 0x20)
+        self._update_output_on_off_buttons()
+
+        measurements, triggers = self.measurements_and_triggers()
+
+        triggers['CH1On']['val'] = self._psu_on_off[0]
+        triggers['CH2On']['val'] = self._psu_on_off[1]
+        triggers['CH1CV']['val'] = not self._psu_cc[0]
+        triggers['CH2CV']['val'] = not self._psu_cc[1]
+        triggers['CH1CC']['val'] = self._psu_cc[0]
+        triggers['CH2CC']['val'] = self._psu_cc[1]
+        triggers['CH1TimerRunning']['val'] = self._timer_mode_running[0]
+        triggers['CH2TimerRunning']['val'] = self._timer_mode_running[1]
+
+        for ch in range(2):
+            voltage = None
+            w = self._widget_registry[f'MeasureV{ch}']
+            if not self._enable_measurement_v or not self._psu_on_off[ch]:
+                w.setText('---  V')
+            else:
+                voltage = self._inst.measure_voltage(ch+1)
+                w.setText(f'{voltage:6.3f} V')
+            measurements[f'Voltage{ch+1}']['val'] = voltage
+
+            current = None
+            w = self._widget_registry[f'MeasureC{ch}']
+            if not self._enable_measurement_c or not self._psu_on_off[ch]:
+                w.setText('---  A')
+            else:
+                current = self._inst.measure_current(ch+1)
+                w.setText(f'{current:5.3f} A')
+            measurements[f'Current{ch+1}']['val'] = current
+
+            power = None
+            w = self._widget_registry[f'MeasureP{ch}']
+            if not self._enable_measurement_p or not self._psu_on_off[ch]:
+                w.setText('---  W')
+            else:
+                power = self._inst.measure_power(ch+1)
+                w.setText(f'{power:6.3f} W')
+            measurements[f'Power{ch+1}']['val'] = power
 
         self._cached_measurements = measurements
         self._cached_triggers = triggers

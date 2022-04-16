@@ -48,6 +48,8 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 
 import pyvisa
+import qasync
+from qasync import asyncSlot, asyncClose, QApplication
 
 import device
 from plot_xy_window import PlotXYWindow
@@ -120,6 +122,8 @@ class MainWindow(QWidget):
                 self._style_env = 'windows'
 
         self.app = app
+        # Force the use of the PyVISA-py backend, which doesn't require the NI Visa
+        # library to be installed.
         self.resource_manager = pyvisa.ResourceManager('@py')
 
         # Tuple of (resource_name,
@@ -146,6 +150,16 @@ class MainWindow(QWidget):
         self._measurement_value_op = '>'
         self._measurement_value_comp = 0
 
+        self._init_widgets()
+
+        if len(argv) == 1:
+            self._menu_do_open_ip()
+        else:
+            for ip_address in argv[1:]:
+                self._open_ip(ip_address)
+
+    def _init_widgets(self):
+        """Initialize the top-level widget layout."""
         self._widget_registry = {}
 
         ### Layout the widgets
@@ -358,12 +372,6 @@ class MainWindow(QWidget):
 
         self.show()
 
-        if len(argv) == 1:
-            self._menu_do_open_ip()
-        else:
-            for ip_address in argv[1:]:
-                self._open_ip(ip_address)
-
     def _on_interval_changed(self):
         """Handle a new value in the Measurement Interval input."""
         input = self.sender()
@@ -521,7 +529,8 @@ class MainWindow(QWidget):
             case _:
                 assert False, self._acquisition_mode
 
-    def _update(self):
+    @asyncSlot()
+    async def _update(self):
         """Query all instruments and update all measurements and display widgets."""
         # Although technically each measurement takes place at a different time,
         # it's important that we treat each measurement group as being at a single
@@ -531,7 +540,7 @@ class MainWindow(QWidget):
         # First update all the cached measurements and config widget displays
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
-                config_widget.update_measurements_and_triggers()
+                await config_widget.update_measurements_and_triggers()
         # Check for the current trigger condition
         self._check_acquisition_ready()
         self._update_acquisition_indicator()
@@ -641,7 +650,7 @@ Copyright 2022, Robert S. French"""
 
         # Update the measurement list with newly available measurements
         num_existing = len(self._measurement_times)
-        measurements, _ = config_widget.update_measurements_and_triggers(read_inst=False)
+        measurements, _ = config_widget.measurements_and_triggers()
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (inst.long_name, meas_key)

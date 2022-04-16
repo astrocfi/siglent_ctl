@@ -21,14 +21,41 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ################################################################################
 
+import asyncio
+import functools
 import sys
 
-from PyQt6.QtWidgets import QApplication
+# from PyQt6.QtWidgets import QApplication
+
+import qasync
+from qasync import asyncSlot, asyncClose, QApplication
 
 from main_window import MainWindow
 
-app = QApplication(sys.argv)  # sys.argv is modified to remove Qt options
-main_window = MainWindow(app, sys.argv)
-main_window.show()
 
-app.exec()
+async def main():
+    def close_future(future, loop):
+        loop.call_later(10, future.cancel)
+        future.cancel()
+
+    loop = asyncio.get_event_loop()
+    future = asyncio.Future()
+
+    app = QApplication.instance()  # sys.argv is modified to remove Qt options
+    if hasattr(app, "aboutToQuit"):
+        getattr(app, "aboutToQuit").connect(
+            functools.partial(close_future, future, loop)
+        )
+
+    mainWindow = MainWindow(app, sys.argv)
+    mainWindow.show()
+
+    await future
+    return True
+
+
+if __name__ == "__main__":
+    try:
+        qasync.run(main())
+    except asyncio.exceptions.CancelledError:
+        sys.exit(0)

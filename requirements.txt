@@ -43,6 +43,7 @@ pytz==2021.3
 PyVISA==1.11.3
 PyVISA-py==0.5.2
 pywin32-ctypes==0.2.0
+qasync==0.23.0
 six==1.16.0
 stack-data==0.2.0
 tomli==2.0.1
