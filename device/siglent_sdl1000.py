@@ -152,12 +152,8 @@ class InstrumentSiglentSDL1000(Device4882):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._long_name = f'SDL1000 @ {self._resource_name}'
-        if self._resource_name.startswith('TCPIP'):
-            ips = self._resource_name.split('.') # This only works with TCP!
-            self._name = f'SDL{ips[-1]}'
-        else:
-            self._name = 'SDL'
+        existing_names = kwargs['existing_names']
+        super().init_names('SDL1000', 'SDL', existing_names)
 
     def connect(self, *args, **kwargs):
         """Connect to the instrument and set it to remote state."""

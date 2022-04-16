@@ -38,7 +38,7 @@ class UnknownInstrumentType(Exception):
     pass
 
 
-def create_device(rm, resource_name):
+def create_device(rm, resource_name, **kwargs):
     """"Query a device for its IDN and create the appropriate instrument class."""
     dev = Device4882(rm, resource_name)
     dev.connect()
@@ -50,7 +50,7 @@ def create_device(rm, resource_name):
         cls = _DEVICE_MAPPING.get((manufacturer, model), None)
     if cls is None:
         raise UnknownInstrumentType(idn)
-    new_dev = cls(rm, resource_name)
+    new_dev = cls(rm, resource_name, **kwargs)
     new_dev.connect(resource=dev._resource)
     # print(f'Found a {manufacturer} {model}')
     return new_dev

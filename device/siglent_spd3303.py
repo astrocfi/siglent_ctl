@@ -83,12 +83,8 @@ class InstrumentSiglentSPD3303(Device4882):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._long_name = f'SPD3303 @ {self._resource_name}'
-        if self._resource_name.startswith('TCPIP'):
-            ips = self._resource_name.split('.') # This only works with TCP!
-            self._name = f'SPD{ips[-1]}'
-        else:
-            self._name = 'SPD'
+        existing_names = kwargs['existing_names']
+        super().init_names('SPD3303', 'SPD', existing_names)
 
     def connect(self, *args, **kwargs):
         super().connect(*args, **kwargs)

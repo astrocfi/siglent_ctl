@@ -115,11 +115,15 @@ class ConfigureWidgetBase(QWidget):
         self.refresh()
 
     def _menu_do_rename_device(self):
-        text, ok = QInputDialog.getText(self, 'Change device name',
-                                        'Device name:',
-                                        text=self._inst.name)
-        if ok:
-            self._inst.name = text
+        new_name, ok = QInputDialog.getText(self, 'Change device name',
+                                            'Device name:',
+                                            text=self._inst.name)
+        if ok and new_name != self._inst.name:
+            if new_name in self._main_window.device_names:
+                QMessageBox.critical(self, 'Duplicate Name',
+                                     f'Name "{new_name}" is already used!')
+                return
+            self._inst.name = new_name
             self.device_renamed()
 
     def device_renamed(self):

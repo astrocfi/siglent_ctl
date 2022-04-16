@@ -136,7 +136,7 @@ class MainWindow(QWidget):
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
 
-        self._plot_window_widgets = []
+        self._measurement_window_widgets = []
 
         self._acquisition_mode = 'Manual'
         self._acquisition_ready = True
@@ -375,7 +375,7 @@ class MainWindow(QWidget):
         for key in self._measurements:
             self._measurements[key] = []
         self._measurement_last_good = True
-        for plot_widget in self._plot_window_widgets:
+        for plot_widget in self._measurement_window_widgets:
             plot_widget.update()
 
     def _on_click_acquisition_mode(self):
@@ -431,7 +431,7 @@ class MainWindow(QWidget):
         # so we have to make a copy of the list before iterating.
         for resource_name, inst, config_widget in self._open_resources[:]:
             config_widget.close()
-        for widget in self._plot_window_widgets:
+        for widget in self._measurement_window_widgets:
             widget.close()
 
     def _refresh_menubar_device_recent_resources(self):
@@ -567,7 +567,7 @@ class MainWindow(QWidget):
                     # The user can change the short name
                     self._measurement_names[key] = f'{inst.name}: {name}'
         self._measurement_last_good = not force_nan
-        for plot_widget in self._plot_window_widgets:
+        for plot_widget in self._measurement_window_widgets:
             plot_widget.update()
 
     def _menu_do_about(self):
@@ -610,7 +610,8 @@ Copyright 2022, Robert S. French"""
 
         # Create the device
         try:
-            inst = device.create_device(self.resource_manager, resource_name)
+            inst = device.create_device(self.resource_manager, resource_name,
+                                        existing_names=self.device_names)
         except pyvisa.errors.VisaIOError as ex:
             QMessageBox.critical(self, 'Error',
                                  f'Failed to open "{resource_name}":\n{ex.description}')
@@ -647,7 +648,7 @@ Copyright 2022, Robert S. French"""
             self._measurements[key] = [math.nan] * num_existing
             self._measurement_units[key] = meas['unit']
             self._measurement_names[key] = f'{inst.name}: {name}'
-        for plot_widget in self._plot_window_widgets:
+        for plot_widget in self._measurement_window_widgets:
             plot_widget.measurements_changed()
 
         self._update_widgets()
@@ -660,7 +661,7 @@ Copyright 2022, Robert S. French"""
         """Perform the menu New XY Plot command."""
         w = PlotXYWindow(self)
         w.show()
-        self._plot_window_widgets.append(w)
+        self._measurement_window_widgets.append(w)
 
     def _device_window_closed(self, inst):
         """Update internal state when one of the configuration widgets is closed."""
@@ -673,7 +674,7 @@ Copyright 2022, Robert S. French"""
                 del self._measurement_names[key]
                 del self._measurement_units[key]
 
-        for plot_widget in self._plot_window_widgets:
+        for plot_widget in self._measurement_window_widgets:
             plot_widget.measurements_changed()
 
         if (self._measurement_state_source is not None and
@@ -770,6 +771,11 @@ Copyright 2022, Robert S. French"""
                  background-color: #c0c0c0; color: {color};"""
         label.setStyleSheet(ss)
 
+    @property
+    def device_names(self):
+        """Return a list of all device names currently open."""
+        return [x[1].name for x in self._open_resources]
+
     def device_renamed(self, config_widget):
         """Called when a device configuration window is renamed by the user."""
         measurements = config_widget.get_measurements()
@@ -780,5 +786,5 @@ Copyright 2022, Robert S. French"""
             key = (long_name, meas_key)
             self._measurement_names[key] = f'{inst_name}: {name}'
         self._update_widgets()
-        for widget in self._plot_window_widgets:
+        for widget in self._measurement_window_widgets:
             widget.measurements_changed()

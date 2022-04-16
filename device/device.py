@@ -35,7 +35,7 @@ class ContactLostError(Exception):
 
 class Device(object):
     """Class representing any generic device accessible through VISA."""
-    def __init__(self, resource_manager, resource_name):
+    def __init__(self, resource_manager, resource_name, *args, **kwargs):
         self._resource_manager = resource_manager
         self._resource_name = resource_name
         self._long_name = resource_name
@@ -101,6 +101,24 @@ class Device(object):
         self._connected = True
         if self._debug:
             print(f'Connected to {self._resource_name}')
+
+    def init_names(self, long_pfx, short_pfx, existing_names):
+        print(existing_names)
+        self._long_name = f'{long_pfx} @ {self._resource_name}'
+        if self._resource_name.startswith('TCPIP'):
+            ips = self._resource_name.split('.') # This only works with TCP!
+            short_name = f'{short_pfx}{ips[-1]}'
+        else:
+            short_name = short_pfx
+        if short_name in existing_names:
+            sfx = 1
+            while True:
+                short_name2 = f'{short_name}[{sfx}]'
+                if short_name2 not in existing_names:
+                    short_name = short_name2
+                    break
+                sfx += 1
+        self._name = short_name
 
     ### Direct access to pyvisa functions
 
