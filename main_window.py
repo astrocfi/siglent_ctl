@@ -131,6 +131,7 @@ class MainWindow(QWidget):
         self._measurement_times = []
         self._measurements = {}
         self._measurement_units = {}
+        self._measurement_formats = {}
         self._measurement_names = {}
         self._measurement_last_good = True
 
@@ -533,6 +534,7 @@ Copyright 2022, Robert S. French"""
                 # is opened again.
                 self._measurements[key] = [math.nan] * num_existing
                 self._measurement_units[key] = meas['unit']
+                self._measurement_formats[key] = meas['format']
                 self._measurement_names[key] = f'{inst.name}: {name}'
         for measurement_display_widget in self._measurement_display_widgets:
             measurement_display_widget.measurements_changed()
@@ -670,6 +672,7 @@ Copyright 2022, Robert S. French"""
                         self._measurements[key] = ([math.nan] *
                                                    len(self._measurement_times))
                         self._measurement_units[key] = meas['unit']
+                        self._measurement_formats[key] = meas['format']
                         self._measurement_names[key] = f'{inst.name}: {name}'
                     if force_nan:
                         val = math.nan

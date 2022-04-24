@@ -35,9 +35,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 ** Histogram View **
 
 - Show gridlines
-- Statistics of displayed data
-  - Current value
-  - Max, Min, Median, Mean, Std Dev, # Pts, # NaNs
 - Cumulative percentage
 - Cumulative distribution
 - Probability density

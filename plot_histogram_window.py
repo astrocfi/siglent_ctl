@@ -77,6 +77,8 @@ class PlotHistogramWindow(QWidget):
         self._plot_num_bins = 30
         self._plot_show_percentage = False
 
+        self._row_ctrl_widgets = []
+
         ### Layout the widgets
 
         layoutv = QVBoxLayout()
@@ -90,10 +92,17 @@ class PlotHistogramWindow(QWidget):
         self._menubar.setStyleSheet('margin: 0px; padding: 0px;')
 
         self._menubar_view = self._menubar.addMenu('&View')
-        action = QAction('Show &config row', self, checkable=True)
+        action = QAction('Show &statistics row', self, checkable=True)
         action.setShortcut(QKeySequence('Ctrl+1'))
         action.setChecked(True)
-        # action.triggered.connect(self._menu_do_show_config_row)
+        action.triggered.connect(self._menu_do_show_statistics_row)
+        self._menubar_view.addAction(action)
+
+        action = QAction('Show &config rows', self, checkable=True)
+        action.setShortcut(QKeySequence('Ctrl+2'))
+        action.setChecked(True)
+        action.triggered.connect(self._menu_do_show_config_row)
+        self._menubar_view.addAction(action)
 
         layoutv.addWidget(self._menubar)
 
@@ -114,13 +123,99 @@ class PlotHistogramWindow(QWidget):
         pw.plotItem.ctrlMenu.menuAction().setVisible(False)
         layoutv.addWidget(pw)
 
+        ### Statistics
+
+        w = QWidget()
+        w.setStyleSheet('background: black;')
+        ss = """font-size: 14px; color: yellow;
+             """
+        ss2 = """font-size: 14px; font-weight: bold; font-family: "Courier New";
+                 color: yellow;
+             """
+        layouth = QHBoxLayout()
+        layouth.setContentsMargins(10, 10, 10, 10)
+        w.setLayout(layouth)
+        self._statistics_widget = w
+        layoutv.addWidget(w)
+
+        layouth.addStretch()
+
+        layoutg = QGridLayout()
+        layoutg.setContentsMargins(0, 0, 0, 0)
+        layouth.addLayout(layoutg)
+
+        # Last data
+        label = QLabel('Last Reading')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 0, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_last_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 0, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        # Min data
+        label = QLabel('Min')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 1, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_min_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        # Max data
+        label = QLabel('Max')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 2, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_max_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 2, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        # Mean data
+        label = QLabel('Mean')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 3, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_mean_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 3, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        # Median data
+        label = QLabel('Median')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 4, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_median_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 4, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        # Stddev data
+        label = QLabel('Std Dev')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 5, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_stddev_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 5, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        # Num points
+        label = QLabel('# Data')
+        label.setStyleSheet(ss)
+        layoutg.addWidget(label, 0, 6, 1, 1, Qt.AlignmentFlag.AlignCenter)
+        label = QLabel()
+        self._widget_num_data = label
+        label.setStyleSheet(ss2)
+        layoutg.addWidget(label, 1, 6, 1, 1, Qt.AlignmentFlag.AlignRight)
+
+        layouth.addStretch()
+
         ### Row 1
 
         layouth = QHBoxLayout()
         layouth.setContentsMargins(10, 10, 10, 10)
         w = QWidget()
         w.setLayout(layouth)
-        # self._row_x_widgets.append(w)
+        self._row_ctrl_widgets.append(w)
         layoutv.addWidget(w)
 
         # Data source selector
@@ -166,7 +261,7 @@ class PlotHistogramWindow(QWidget):
         layouth.setContentsMargins(10, 0, 10, 10)
         w = QWidget()
         w.setLayout(layouth)
-        # self._row_x_widgets.append(w)
+        self._row_ctrl_widgets.append(w)
         layoutv.addWidget(w)
 
         # Show percentage
@@ -219,13 +314,20 @@ class PlotHistogramWindow(QWidget):
         self._update_axes()
         self._update_widgets()
 
-    def _menu_do_show_row_x(self, state):
-        """Handle Show X Row menu item."""
-        self._x_row_action.setChecked(state)
-        for w in self._row_x_widgets:
-            if state:
+    def _menu_do_show_statistics_row(self, state):
+        """Handle Show Statistics Row menu item."""
+        if state:
+            self._statistics_widget.show()
+        else:
+            self._statistics_widget.hide()
+
+    def _menu_do_show_config_row(self, state):
+        """Handle Show Config Rows menu item."""
+        if state:
+            for w in self._row_ctrl_widgets:
                 w.show()
-            else:
+        else:
+            for w in self._row_ctrl_widgets:
                 w.hide()
 
     def _on_data_source_selection(self, sel):
@@ -304,7 +406,22 @@ class PlotHistogramWindow(QWidget):
         if (len(self._main_window._measurement_times) == 0 or
             self._plot_data_source is None):
             self._plot_item.setData([], [])
+            self._widget_last_data.hide()
+            self._widget_min_data.hide()
+            self._widget_max_data.hide()
+            self._widget_mean_data.hide()
+            self._widget_median_data.hide()
+            self._widget_stddev_data.hide()
+            self._widget_num_data.hide()
             return
+
+        self._widget_last_data.show()
+        self._widget_min_data.show()
+        self._widget_max_data.show()
+        self._widget_mean_data.show()
+        self._widget_median_data.show()
+        self._widget_stddev_data.show()
+        self._widget_num_data.show()
 
         start_time = self._main_window._measurement_times[0]
         stop_time = self._main_window._measurement_times[-1]
@@ -345,13 +462,39 @@ class PlotHistogramWindow(QWidget):
             x_max += 1
         # self._plot_.setRange(xRange=(x_min, x_max), padding=0)
 
-        y, x = np.histogram(vals, range=(x_min, x_max), bins=self._plot_num_bins)
+        y, x = np.histogram(finite_vals, range=(x_min, x_max), bins=self._plot_num_bins)
         if self._plot_show_percentage:
             y = y / len(vals) * 100
 
         self._plot_item.setData(x, y,
                                 pen=pg.mkPen(QColor(self._plot_edge_color)),
                                 brush=self._plot_fill_color)
+
+        self._widget_last_data.show()
+        self._widget_min_data.show()
+        self._widget_max_data.show()
+        self._widget_mean_data.show()
+        self._widget_median_data.show()
+        self._widget_stddev_data.show()
+        self._widget_num_data.show()
+
+        if len(finite_vals) == 0:
+            self._widget_last_data.setText('N/A')
+            self._widget_min_data.setText('N/A')
+            self._widget_max_data.setText('N/A')
+            self._widget_mean_data.setText('N/A')
+            self._widget_median_data.setText('N/A')
+            self._widget_stddev_data.setText('N/A')
+            self._widget_num_data.setText('0')
+        else:
+            fmt = '%' + self._main_window._measurement_formats[self._plot_data_source]
+            self._widget_last_data.setText(fmt % finite_vals[-1])
+            self._widget_min_data.setText(fmt % x_min)
+            self._widget_max_data.setText(fmt % x_max)
+            self._widget_mean_data.setText(fmt % np.mean(finite_vals))
+            self._widget_median_data.setText(fmt % np.mean(finite_vals))
+            self._widget_stddev_data.setText(fmt % np.std(finite_vals))
+            self._widget_num_data.setText('%6d' % len(finite_vals))
 
     def measurements_changed(self):
         """Called when the set of instruments/measurements changes."""
