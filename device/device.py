@@ -1,7 +1,7 @@
 ################################################################################
 # device/device.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # It contains the parent class for all devices (the Device class) and the all
 # devices that support IEEE-488.2 (the Device4882 class).
@@ -103,7 +103,6 @@ class Device(object):
             print(f'Connected to {self._resource_name}')
 
     def init_names(self, long_pfx, short_pfx, existing_names):
-        print(existing_names)
         self._long_name = f'{long_pfx} @ {self._resource_name}'
         if self._resource_name.startswith('TCPIP'):
             ips = self._resource_name.split('.') # This only works with TCP!

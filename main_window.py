@@ -1,7 +1,7 @@
 ################################################################################
 # main_window.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # It contains the main window displayed when the program is first run.
 #
@@ -50,6 +50,7 @@ from PyQt6.QtGui import QAction, QKeySequence
 import pyvisa
 
 import device
+from plot_histogram_window import PlotHistogramWindow
 from plot_xy_window import PlotXYWindow
 
 
@@ -109,7 +110,7 @@ class MainWindow(QWidget):
     """The main window of the entire application."""
     def __init__(self, app, argv):
         super().__init__()
-        self.setWindowTitle('Siglent Instrument Controller')
+        self.setWindowTitle('Instrument Conductor')
 
         match platform.system():
             case 'Linux':
@@ -136,7 +137,7 @@ class MainWindow(QWidget):
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
 
-        self._measurement_window_widgets = []
+        self._measurement_display_widgets = []
 
         self._acquisition_mode = 'Manual'
         self._acquisition_ready = True
@@ -145,9 +146,20 @@ class MainWindow(QWidget):
         self._measurement_value_source = None
         self._measurement_value_op = '>'
         self._measurement_value_comp = 0
+        self._last_measurement_duration = 0
 
         self._widget_registry = {}
 
+        self._init_widgets()
+
+        if len(argv) == 1:
+            self._menu_do_open_ip()
+        else:
+            for ip_address in argv[1:]:
+                self._open_ip(ip_address)
+
+    def _init_widgets(self):
+        """Initialize the top-level widgets."""
         ### Layout the widgets
 
         layouttopv = QVBoxLayout()
@@ -186,6 +198,10 @@ class MainWindow(QWidget):
         action = QAction('New &X/Y Plot', self)
         action.setShortcut(QKeySequence('Ctrl+P'))
         action.triggered.connect(self._menu_do_new_xy_plot)
+        self._menubar_device.addAction(action)
+        action = QAction('New &Histogram', self)
+        action.setShortcut(QKeySequence('Ctrl+H'))
+        action.triggered.connect(self._menu_do_new_histogram_plot)
         self._menubar_device.addAction(action)
 
         self._menubar_help = self._menubar.addMenu('&Help')
@@ -334,6 +350,8 @@ class MainWindow(QWidget):
         layoutv3.addWidget(self._widget_measurement_elapsed)
         self._widget_measurement_points = QLabel('# Data Points: 0')
         layoutv3.addWidget(self._widget_measurement_points)
+        self._widget_measurement_spent = QLabel('Last Measurement Duration: 0.000 s')
+        layoutv3.addWidget(self._widget_measurement_spent)
         layouth.addStretch()
         layoutv3 = QVBoxLayout()
         layouth.addLayout(layoutv3)
@@ -348,21 +366,15 @@ class MainWindow(QWidget):
 
         self._heartbeat_timer = QTimer(self.app)
         self._heartbeat_timer.timeout.connect(self._heartbeat_update)
-        self._heartbeat_timer.setInterval(1000)
+        self._heartbeat_timer.setInterval(500)
         self._heartbeat_timer.start()
 
         self._measurement_timer = QTimer(self.app)
-        self._measurement_timer.timeout.connect(self._update)
+        self._measurement_timer.timeout.connect(self._update_measurements)
         self._measurement_timer.setInterval(1000)
         self._measurement_timer.start()
 
         self.show()
-
-        if len(argv) == 1:
-            self._menu_do_open_ip()
-        else:
-            for ip_address in argv[1:]:
-                self._open_ip(ip_address)
 
     def _on_interval_changed(self):
         """Handle a new value in the Measurement Interval input."""
@@ -375,8 +387,8 @@ class MainWindow(QWidget):
         for key in self._measurements:
             self._measurements[key] = []
         self._measurement_last_good = True
-        for plot_widget in self._measurement_window_widgets:
-            plot_widget.update()
+        for measurement_display_widget in self._measurement_display_widgets:
+            measurement_display_widget.update()
 
     def _on_click_acquisition_mode(self):
         """Handle Measurement Mode radio buttons."""
@@ -425,15 +437,6 @@ class MainWindow(QWidget):
         self._user_paused = True
         self._update_widgets()
 
-    def closeEvent(self, event):
-        # Close all the sub-windows, allowing them to shut down peacefully
-        # Closing a config window also removes it from the open resources list,
-        # so we have to make a copy of the list before iterating.
-        for resource_name, inst, config_widget in self._open_resources[:]:
-            config_widget.close()
-        for widget in self._measurement_window_widgets:
-            widget.close()
-
     def _refresh_menubar_device_recent_resources(self):
         """Update the text in the Recent Resources actions."""
         for num in range(self._max_recent_resources):
@@ -449,131 +452,10 @@ class MainWindow(QWidget):
             else:
                 action.setVisible(False)
 
-    @staticmethod
-    def _time_to_hms(t):
-        m, s = divmod(t, 60)
-        h, m = divmod(m, 60)
-        return '%02d:%02d:%02d' % (h, m, s)
-
-    def _heartbeat_update(self):
-        """Regular updates like the elapsed time."""
-        if len(self._measurement_times) == 0:
-            msg1 = 'Started: N/A'
-            msg2 = 'Elapsed: N/A'
-        else:
-            msg1 = ('Started: ' +
-                    time.strftime('%Y %b %d %H:%M:%S',
-                                  time.localtime(self._measurement_times[0])))
-            msg2 = 'Elapsed: ' + self._time_to_hms(self._measurement_times[-1] -
-                                                   self._measurement_times[0])
-        self._widget_measurement_started.setText(msg1)
-        self._widget_measurement_elapsed.setText(msg2)
-        npts = len(self._measurement_times)
-        self._widget_measurement_points.setText(f'# Data Points: {npts}')
-
-    def _check_acquisition_ready(self):
-        """Check to see if the current acquisition trigger is met."""
-        match self._acquisition_mode:
-            case 'Manual':
-                self._acquisition_ready = True
-                return
-            case 'State':
-                for resource_name, inst, config_widget in self._open_resources:
-                    if config_widget is not None:
-                        for trigger_key, trigger in config_widget.get_triggers().items():
-                            key = (inst.long_name, trigger_key)
-                            if key == self._measurement_state_source:
-                                self._acquisition_ready = trigger['val']
-                                return
-                assert False, 'State source no longer in open resources'
-            case 'Value':
-                self._acquisition_ready = False
-                src = self._measurement_value_source
-                if src not in self._measurements:
-                    return
-                for resource_name, inst, config_widget in self._open_resources:
-                    if config_widget is not None:
-                        if src[0] == inst.long_name:
-                            break
-                else:
-                    assert False, self._measurement_value_source
-                meas = config_widget.get_measurements()
-                val = meas[src[1]]['val']
-                if val is None:
-                    return
-                comp = self._measurement_value_comp
-                match self._measurement_value_op:
-                    case '<':
-                        self._acquisition_ready = val < comp
-                    case '<=':
-                        self._acquisition_ready = val <= comp
-                    case '>':
-                        self._acquisition_ready = val > comp
-                    case '>=':
-                        self._acquisition_ready = val >= comp
-                    case '=':
-                        self._acquisition_ready = val == comp
-                    case '!=':
-                        self._acquisition_ready = val != comp
-                    case _:
-                        assert False, self._measurement_value_op
-                return
-            case _:
-                assert False, self._acquisition_mode
-
-    def _update(self):
-        """Query all instruments and update all measurements and display widgets."""
-        # Although technically each measurement takes place at a different time,
-        # it's important that we treat each measurement group as being at a single
-        # time so we can match up measurements in X/Y plots and file saving.
-        if len(self._open_resources) == 0:
-            return
-        # First update all the cached measurements and config widget displays
-        for resource_name, inst, config_widget in self._open_resources:
-            if config_widget is not None:
-                config_widget.update_measurements_and_triggers()
-        # Check for the current trigger condition
-        self._check_acquisition_ready()
-        self._update_acquisition_indicator()
-        force_nan = False
-        if not self._acquisition_ready or self._user_paused:
-            if self._measurement_last_good:
-                # We need to insert a fake set of NaNs so there will be a break in the
-                # line graphs when plotting
-                force_nan = True
-            else:
-                return
-        cur_time = time.time()
-        self._measurement_times.append(cur_time)
-        # Now go through and read all the cached measurements
-        for resource_name, inst, config_widget in self._open_resources:
-            if config_widget is not None:
-                measurements = config_widget.get_measurements()
-                for meas_key, meas in measurements.items():
-                    name = meas['name']
-                    key = (inst.long_name, meas_key)
-                    if key not in self._measurements:
-                        self._measurements[key] = ([math.nan] *
-                                                   len(self._measurement_times))
-                        self._measurement_units[key] = meas['unit']
-                        self._measurement_names[key] = f'{inst.name}: {name}'
-                    if force_nan:
-                        val = math.nan
-                    else:
-                        val = meas['val']
-                        if val is None:
-                            val = math.nan
-                    self._measurements[key].append(val)
-                    # The user can change the short name
-                    self._measurement_names[key] = f'{inst.name}: {name}'
-        self._measurement_last_good = not force_nan
-        for plot_widget in self._measurement_window_widgets:
-            plot_widget.update()
-
     def _menu_do_about(self):
         """Show the About box."""
         supported = ', '.join(device.SUPPORTED_INSTRUMENTS)
-        msg = f"""Siglent Instrument Controller.
+        msg = f"""Instrument Conductor.
 
 Supported instruments:
 {supported}
@@ -645,11 +527,15 @@ Copyright 2022, Robert S. French"""
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (inst.long_name, meas_key)
-            self._measurements[key] = [math.nan] * num_existing
-            self._measurement_units[key] = meas['unit']
-            self._measurement_names[key] = f'{inst.name}: {name}'
-        for plot_widget in self._measurement_window_widgets:
-            plot_widget.measurements_changed()
+            if key not in self._measurements:
+                # We skip creation of new measurements if the key is already there.
+                # This happens if the instrument exists before, was deleted, and then
+                # is opened again.
+                self._measurements[key] = [math.nan] * num_existing
+                self._measurement_units[key] = meas['unit']
+                self._measurement_names[key] = f'{inst.name}: {name}'
+        for measurement_display_widget in self._measurement_display_widgets:
+            measurement_display_widget.measurements_changed()
 
         self._update_widgets()
 
@@ -661,30 +547,151 @@ Copyright 2022, Robert S. French"""
         """Perform the menu New XY Plot command."""
         w = PlotXYWindow(self)
         w.show()
-        self._measurement_window_widgets.append(w)
+        self._measurement_display_widgets.append(w)
 
-    def _device_window_closed(self, inst):
-        """Update internal state when one of the configuration widgets is closed."""
-        idx = [x[0] for x in self._open_resources].index(inst.resource_name)
-        del self._open_resources[idx]
-        self._refresh_menubar_device_recent_resources()
-        for key in list(self._measurements): # Need list because we're modifying keys
-            if key[0] == inst.long_name:
-                del self._measurements[key]
-                del self._measurement_names[key]
-                del self._measurement_units[key]
+    def _menu_do_new_histogram_plot(self):
+        """Perform the menu New Histogram command."""
+        w = PlotHistogramWindow(self)
+        w.show()
+        self._measurement_display_widgets.append(w)
 
-        for plot_widget in self._measurement_window_widgets:
-            plot_widget.measurements_changed()
+    @staticmethod
+    def _time_to_hms(t):
+        m, s = divmod(t, 60)
+        h, m = divmod(m, 60)
+        return '%02d:%02d:%02d' % (h, m, s)
 
-        if (self._measurement_state_source is not None and
-                self._measurement_state_source[0] == inst.long_name):
-            self._measurement_state_source = None
-        if (self._measurement_value_source is not None and
-                self._measurement_value_source[0] == inst.long_name):
-            self._measurement_value_source = None
+    def _heartbeat_update(self):
+        """Regular updates like the elapsed time."""
+        if len(self._measurement_times) == 0:
+            msg1 = 'Started: N/A'
+            msg2 = 'Elapsed: N/A'
+        else:
+            msg1 = ('Started: ' +
+                    time.strftime('%Y %b %d %H:%M:%S',
+                                  time.localtime(self._measurement_times[0])))
+            msg2 = 'Elapsed: ' + self._time_to_hms(self._measurement_times[-1] -
+                                                   self._measurement_times[0])
+        self._widget_measurement_started.setText(msg1)
+        self._widget_measurement_elapsed.setText(msg2)
+        npts = len(self._measurement_times)
+        self._widget_measurement_points.setText(f'# Data Points: {npts}')
+        self._widget_measurement_spent.setText(
+            f'Last Measurement Duration: {self._last_measurement_duration:.3f} s')
 
-        self._update_widgets()
+
+    def _check_acquisition_ready(self):
+        """Check to see if the current acquisition trigger is met."""
+        match self._acquisition_mode:
+            case 'Manual':
+                self._acquisition_ready = True
+                return
+            case 'State':
+                for resource_name, inst, config_widget in self._open_resources:
+                    if config_widget is not None:
+                        for trigger_key, trigger in config_widget.get_triggers().items():
+                            key = (inst.long_name, trigger_key)
+                            if key == self._measurement_state_source:
+                                self._acquisition_ready = trigger['val']
+                                return
+                assert False, 'State source no longer in open resources'
+            case 'Value':
+                self._acquisition_ready = False
+                src = self._measurement_value_source
+                if src not in self._measurements:
+                    return
+                for resource_name, inst, config_widget in self._open_resources:
+                    if config_widget is not None:
+                        if src[0] == inst.long_name:
+                            break
+                else:
+                    assert False, self._measurement_value_source
+                meas = config_widget.get_measurements()
+                val = meas[src[1]]['val']
+                if val is None:
+                    return
+                comp = self._measurement_value_comp
+                match self._measurement_value_op:
+                    case '<':
+                        self._acquisition_ready = val < comp
+                    case '<=':
+                        self._acquisition_ready = val <= comp
+                    case '>':
+                        self._acquisition_ready = val > comp
+                    case '>=':
+                        self._acquisition_ready = val >= comp
+                    case '=':
+                        self._acquisition_ready = val == comp
+                    case '!=':
+                        self._acquisition_ready = val != comp
+                    case _:
+                        assert False, self._measurement_value_op
+                return
+            case _:
+                assert False, self._acquisition_mode
+
+    def _update_measurements(self):
+        """Query all instruments and update all measurements and display widgets."""
+        # Although technically each measurement takes place at a different time,
+        # it's important that we treat each measurement group as being at a single
+        # time so we can match up measurements in X/Y plots and file saving.
+        if len(self._open_resources) == 0:
+            return
+        start_time = time.time()
+        # First update all the cached measurements and config widget displays
+        for resource_name, inst, config_widget in self._open_resources:
+            if config_widget is not None:
+                config_widget.update_measurements_and_triggers()
+        end_time = time.time()
+        self._last_measurement_duration = end_time - start_time
+        # Check for the current trigger condition
+        self._check_acquisition_ready()
+        self._update_acquisition_indicator()
+        force_nan = False
+        if not self._acquisition_ready or self._user_paused:
+            if self._measurement_last_good:
+                # We need to insert a fake set of NaNs so there will be a break in the
+                # line graphs when plotting
+                force_nan = True
+            else:
+                return
+        cur_time = time.time()
+        self._measurement_times.append(cur_time)
+        # Now go through and read all the cached measurements
+        updated_keys = []
+        for resource_name, inst, config_widget in self._open_resources:
+            if config_widget is not None:
+                measurements = config_widget.get_measurements()
+                for meas_key, meas in measurements.items():
+                    name = meas['name']
+                    key = (inst.long_name, meas_key)
+                    updated_keys.append(key)
+                    if key not in self._measurements:
+                        self._measurements[key] = ([math.nan] *
+                                                   len(self._measurement_times))
+                        self._measurement_units[key] = meas['unit']
+                        self._measurement_names[key] = f'{inst.name}: {name}'
+                    if force_nan:
+                        val = math.nan
+                    else:
+                        val = meas['val']
+                        if val is None:
+                            val = math.nan
+                    self._measurements[key].append(val)
+                    # The user can change the short name
+                    self._measurement_names[key] = f'{inst.name}: {name}'
+        if len(updated_keys) > 0:
+            # As long as we updated at least one real instrument, then go through
+            # the measurement list and see which instruments we didn't update. This
+            # happens because those instruments were closed and no longer exist. But
+            # to keep everything happy all measurements need to be the same length,
+            # so we add on NaNs.
+            for key in self._measurements:
+                if key not in updated_keys:
+                    self._measurements[key].append(math.nan)
+        self._measurement_last_good = not force_nan
+        for measurement_display_widget in self._measurement_display_widgets:
+            measurement_display_widget.update()
 
     def _update_widgets(self):
         """Update our widgets with current information."""
@@ -786,5 +793,37 @@ Copyright 2022, Robert S. French"""
             key = (long_name, meas_key)
             self._measurement_names[key] = f'{inst_name}: {name}'
         self._update_widgets()
-        for widget in self._measurement_window_widgets:
+        for widget in self._measurement_display_widgets:
             widget.measurements_changed()
+
+    def closeEvent(self, event):
+        # Close all the sub-windows, allowing them to shut down peacefully
+        # Closing a config window also removes it from the open resources list,
+        # so we have to make a copy of the list before iterating.
+        for resource_name, inst, config_widget in self._open_resources[:]:
+            config_widget.close()
+        for widget in self._measurement_display_widgets:
+            widget.close()
+
+    def device_window_closed(self, inst):
+        """Update internal state when one of the configuration widgets is closed."""
+        idx = [x[0] for x in self._open_resources].index(inst.resource_name)
+        del self._open_resources[idx]
+        self._refresh_menubar_device_recent_resources()
+        # for key in list(self._measurements): # Need list because we're modifying keys
+        #     if key[0] == inst.long_name:
+        #         del self._measurements[key]
+        #         del self._measurement_names[key]
+        #         del self._measurement_units[key]
+
+        for measurement_display_widget in self._measurement_display_widgets:
+            measurement_display_widget.measurements_changed()
+
+        if (self._measurement_state_source is not None and
+                self._measurement_state_source[0] == inst.long_name):
+            self._measurement_state_source = None
+        if (self._measurement_value_source is not None and
+                self._measurement_value_source[0] == inst.long_name):
+            self._measurement_value_source = None
+
+        self._update_widgets()

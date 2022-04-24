@@ -1,7 +1,7 @@
 ################################################################################
-# siglent_ctl.py
+# inst_conductor.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # Is contains the top-level entry point for the suite.
 #

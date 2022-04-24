@@ -1,7 +1,7 @@
 ################################################################################
 # device/config_widget_base.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # It contains the parent class for all instrument configuration widgets to
 # provide utility functions and a consistent look and feel.
@@ -146,7 +146,7 @@ class ConfigureWidgetBase(QWidget):
     def closeEvent(self, event):
         """Handle window close event by disconnecting from the instrument."""
         self._inst.disconnect()
-        self._main_window._device_window_closed(self._inst)
+        self._main_window.device_window_closed(self._inst)
 
 
 class PrintableTextDialog(QDialog):

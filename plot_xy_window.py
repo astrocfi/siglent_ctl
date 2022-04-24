@@ -1,7 +1,7 @@
 ################################################################################
-# plot_window.py
+# plot_xy_window.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # It contains the plot window that displays a graph of X vs Y values.
 #
@@ -74,7 +74,7 @@ _MARKER_SYMBOLS = (('Circle', 'o'),
 
 
 class PlotXYWindow(QWidget):
-    """The main window of the entire application."""
+    """Class to plot measurements in X/Y format."""
     _PLOT_NUM = 0
 
     def __init__(self, main_window):
@@ -219,14 +219,14 @@ class PlotXYWindow(QWidget):
         layouth.addLayout(layouth2)
         label = QLabel('X Axis:')
         layouth2.addWidget(label)
-        layouth2.addSpacing(5)
+        layouth2.addSpacing(2)
         button = QPushButton('')
         layouth2.addWidget(button)
         button.setStyleSheet(
             f'background-color: {self._plot_x_axis_color}; max-width: 1.5em;')
         button.source_num = 'X'
         button.clicked.connect(self._on_click_color_selector)
-        layouth2.addSpacing(5)
+        layouth2.addSpacing(2)
         combo = QComboBox()
         combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         combo.activated.connect(self._on_x_axis_source)
@@ -240,7 +240,6 @@ class PlotXYWindow(QWidget):
         layouth.addLayout(layouth2)
         label = QLabel('View Last:')
         layouth2.addWidget(label)
-        layouth2.addSpacing(5)
         combo = QComboBox()
         combo.activated.connect(self._on_x_axis_duration)
         self._widget_duration = combo
@@ -255,7 +254,6 @@ class PlotXYWindow(QWidget):
         layouth.addLayout(layouth2)
         label = QLabel('Background Color:')
         layouth2.addWidget(label)
-        layouth2.addSpacing(5)
         button = QPushButton('')
         layouth2.addWidget(button)
         button.setStyleSheet(
@@ -273,6 +271,7 @@ class PlotXYWindow(QWidget):
 
         layouth.addStretch()
 
+        # Plot all/none params buttons
         button = QPushButton('Show All')
         layouth.addWidget(button)
         button.clicked.connect(self._on_click_all_measurements)
@@ -281,8 +280,6 @@ class PlotXYWindow(QWidget):
         button.clicked.connect(self._on_click_no_measurements)
 
         layouth.addStretch()
-
-        # Plot all params button
 
         ### The data selectors
 

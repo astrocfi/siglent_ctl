@@ -1,12 +1,11 @@
 ** PyInstaller **
 
-pyinstaller siglent_ctl.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6 --hidden-import pyvisa_py --noconfirm --onefile --windowed
+pyinstaller inst_conductor.py --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.ViewBox.axisCtrlTemplate_pyqt6 --hidden-import pyqtgraph.graphicsItems.PlotItem.plotConfigTemplate_pyqt6 --hidden-import pyqtgraph.imageview.ImageViewTemplate_pyqt6 --hidden-import pyvisa_py --noconfirm --onefile --windowed
 
 https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** General **
 
-- Rename to "conductor"
 - Create new GitHub account
 - Look into tab focus
 - Write help for each instrument
@@ -16,19 +15,33 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** Acquisition **
 
+- Implement better way to handle breaks between time sequences instead of just inserting
+  a dummy NaN. Maybe separate lists of measurements that are then stitched together?
+  Right now if there's a segment with only one measurement it isn't drawn.
+- Bug - Closing an instrument doesn't start a new segment so when the instrument is
+  reopened it just has a big jump from the previous elapsed time (when there's only
+  one instrument).
 - Save to CSV
 - Load from CSV
 - Real-time save to CSV
+- Replay recording in real time or sped up / slowed down
 
 ** XY Plotting **
 
 - Bug - sharing Y axis doesn't refresh the position of the Y axis label
 - Bug - Axes occasionally don't update in plot window
-- Implement better way to handle breaks between time sequences instead of just inserting
-  a dummy NaN. Maybe separate lists of measurements that are then stitched together?
-  Right now if there's a segment with only one measurement it isn't drawn.
+- Add custom past time
 
 ** Histogram View **
+
+- Show gridlines
+- Statistics of displayed data
+  - Current value
+  - Max, Min, Median, Mean, Std Dev, # Pts, # NaNs
+- Cumulative percentage
+- Cumulative distribution
+- Probability density
+- Add custom past time
 
 ** Measurements/Statistics View **
 

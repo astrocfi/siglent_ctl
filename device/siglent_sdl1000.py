@@ -1,7 +1,7 @@
 ################################################################################
 # siglent_sdl1000.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # It contains all code related to the Siglent SDL1000 series of programmable
 # DC electronic loads:

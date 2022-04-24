@@ -1,7 +1,7 @@
 ################################################################################
 # device/__init__.py
 #
-# This file is part of the siglent_ctl software suite.
+# This file is part of the inst_conductor software suite.
 #
 # It contains the top-level interface to the instrument device driver module.
 #
