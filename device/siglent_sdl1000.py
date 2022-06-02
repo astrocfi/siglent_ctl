@@ -2166,7 +2166,7 @@ Connected to {self._inst.resource_name}
             bg_color = '#ff0000'
         else:
             bt.setText('SHORT IS OFF')
-            bg_color = '#00ff00'
+            bg_color = '#c0c0c0'
         ss = f"""QPushButton {{
                 background-color: {bg_color};
                 min-width: 7.5em; max-width: 7.5em; min-height: 1.1em; max-height: 1.1em;
@@ -2212,7 +2212,7 @@ Connected to {self._inst.resource_name}
                 bt.setText('START TEST')
             else:
                 bt.setText('LOAD IS OFF')
-            bg_color = '#c0ffb0'
+            bg_color = '#c0c0c0'
         ss = f"""QPushButton {{
                     background-color: {bg_color};
                     min-width: 7em; max-width: 7em;

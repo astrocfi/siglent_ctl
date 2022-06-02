@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (QButtonGroup,
                              QDialog,
                              QDialogButtonBox,
                              QDoubleSpinBox,
+                             QFileDialog,
                              QGridLayout,
                              QGroupBox,
                              QHBoxLayout,
@@ -47,6 +48,8 @@ from PyQt6.QtWidgets import (QButtonGroup,
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 
+import csv
+import numpy as np
 import pyvisa
 
 import device
@@ -134,6 +137,8 @@ class MainWindow(QWidget):
         self._measurement_formats = {}
         self._measurement_names = {}
         self._measurement_last_good = True
+        self._triggers = {}
+        self._trigger_names = {}
 
         self._max_recent_resources = 4
         self._recent_resources = [] # List of resource names
@@ -357,6 +362,17 @@ class MainWindow(QWidget):
         layoutv3 = QVBoxLayout()
         layouth.addLayout(layoutv3)
         layoutv3.addStretch()
+        button = QPushButton('Save CSV')
+        ss = """QPushButton { min-width: 4.5em; max-width: 4.5em;
+                              min-height: 1.5em; max-height: 1.5em;
+                              border-radius: 0.5em; border: 2px solid black;
+                              font-weight: bold;
+                              background-color: #ffff80; }
+                QPushButton::pressed { border: 3px solid black; }"""
+        button.setStyleSheet(ss)
+        self._widget_registry['SaveCSVButton'] = button
+        button.clicked.connect(self._on_click_save_csv)
+        layoutv3.addWidget(button)
         label = QLabel('')
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layoutv3.addWidget(label)
@@ -388,8 +404,60 @@ class MainWindow(QWidget):
         for key in self._measurements:
             self._measurements[key] = []
         self._measurement_last_good = True
+        for key in self._triggers:
+            self._triggers[key] = []
         for measurement_display_widget in self._measurement_display_widgets:
             measurement_display_widget.update()
+
+    def _on_click_save_csv(self):
+        """Handle Save CSV button."""
+        if len(self._measurement_times) == 0:
+            return
+        fn = QFileDialog.getSaveFileName(self, caption='Save Measurements as CSV',
+                                         filter='All (*.*);;CSV (*.csv)',
+                                         initialFilter='CSV (*.csv)')
+        fn = fn[0]
+        if not fn:
+            return
+        with open(fn, 'w', newline='') as fp:
+            csvw = csv.writer(fp, )
+            header = ['Elapsed Time (s)', 'Absolute Time']
+            meas_used_keys = []
+            for key in self._measurements:
+                if np.all(np.isnan(self._measurements[key])):
+                    continue
+                meas_used_keys.append(key)
+                m_name = self._measurement_names[key]
+                m_unit = self._measurement_units[key]
+                m_unit = m_unit.replace('\u2126', 'ohm')
+                m_unit = m_unit.replace('\u00B5', 'micro')
+                label = f'{m_name} ({m_unit})'
+                header.append(label)
+            trig_used_keys = []
+            for key in self._triggers:
+                if np.all(np.isnan(self._triggers[key])):
+                    continue
+                trig_used_keys.append(key)
+                header.append(self._trigger_names[key])
+            csvw.writerow(header)
+            for idx, time_ in enumerate(self._measurement_times):
+                row = [time_ - self._measurement_times[0]]
+                timestr = time.strftime('%Y/%m/%d %H:%M:%S',
+                                        time.localtime(time_))
+                row.append(timestr)
+                for key in meas_used_keys:
+                    meas = self._measurements[key][idx]
+                    if np.isnan(meas):
+                        row.append('')
+                    else:
+                        row.append(meas)
+                for key in trig_used_keys:
+                    trig = self._triggers[key][idx]
+                    if np.isnan(trig):
+                        row.append('')
+                    else:
+                        row.append(trig)
+                csvw.writerow(row)
 
     def _on_click_acquisition_mode(self):
         """Handle Measurement Mode radio buttons."""
@@ -524,7 +592,8 @@ Copyright 2022, Robert S. French"""
 
         # Update the measurement list with newly available measurements
         num_existing = len(self._measurement_times)
-        measurements, _ = config_widget.update_measurements_and_triggers(read_inst=False)
+        measurements, triggers = config_widget.update_measurements_and_triggers(
+                                                                        read_inst=False)
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (inst.long_name, meas_key)
@@ -536,6 +605,15 @@ Copyright 2022, Robert S. French"""
                 self._measurement_units[key] = meas['unit']
                 self._measurement_formats[key] = meas['format']
                 self._measurement_names[key] = f'{inst.name}: {name}'
+        for trig_key, trig in triggers.items():
+            name = trig['name']
+            key = (inst.long_name, trig_key)
+            if key not in self._triggers:
+                # We skip creation of new triggers if the key is already there.
+                # This happens if the instrument exists before, was deleted, and then
+                # is opened again.
+                self._triggers[key] = [math.nan] * num_existing
+                self._trigger_names[key] = f'{inst.name}: {name}'
         for measurement_display_widget in self._measurement_display_widgets:
             measurement_display_widget.measurements_changed()
 
@@ -660,14 +738,15 @@ Copyright 2022, Robert S. French"""
         cur_time = time.time()
         self._measurement_times.append(cur_time)
         # Now go through and read all the cached measurements
-        updated_keys = []
+        meas_updated_keys = []
+        trig_updated_keys = []
         for resource_name, inst, config_widget in self._open_resources:
             if config_widget is not None:
                 measurements = config_widget.get_measurements()
                 for meas_key, meas in measurements.items():
                     name = meas['name']
                     key = (inst.long_name, meas_key)
-                    updated_keys.append(key)
+                    meas_updated_keys.append(key)
                     if key not in self._measurements:
                         self._measurements[key] = ([math.nan] *
                                                    len(self._measurement_times))
@@ -683,15 +762,42 @@ Copyright 2022, Robert S. French"""
                     self._measurements[key].append(val)
                     # The user can change the short name
                     self._measurement_names[key] = f'{inst.name}: {name}'
-        if len(updated_keys) > 0:
+                triggers = config_widget.get_triggers()
+                for trig_key, trig in triggers.items():
+                    name = trig['name']
+                    key = (inst.long_name, trig_key)
+                    trig_updated_keys.append(key)
+                    if key not in self._triggers:
+                        self._triggers[key] = ([math.nan] *
+                                               len(self._measurement_times))
+                        self._trigger_names[key] = f'{inst.name}: {name}'
+                    if force_nan:
+                        val = math.nan
+                    else:
+                        val = trig['val']
+                        if val is None:
+                            val = math.nan
+                    self._triggers[key].append(val)
+                    # The user can change the short name
+                    self._trigger_names[key] = f'{inst.name}: {name}'
+        if len(meas_updated_keys) > 0:
             # As long as we updated at least one real instrument, then go through
             # the measurement list and see which instruments we didn't update. This
             # happens because those instruments were closed and no longer exist. But
             # to keep everything happy all measurements need to be the same length,
             # so we add on NaNs.
             for key in self._measurements:
-                if key not in updated_keys:
+                if key not in meas_updated_keys:
                     self._measurements[key].append(math.nan)
+        if len(trig_updated_keys) > 0:
+            # As long as we updated at least one real instrument, then go through
+            # the trigger list and see which instruments we didn't update. This
+            # happens because those instruments were closed and no longer exist. But
+            # to keep everything happy all triggers need to be the same length,
+            # so we add on NaNs.
+            for key in self._triggers:
+                if key not in trig_updated_keys:
+                    self._triggers[key].append(math.nan)
         self._measurement_last_good = not force_nan
         for measurement_display_widget in self._measurement_display_widgets:
             measurement_display_widget.update()
@@ -765,8 +871,8 @@ Copyright 2022, Robert S. French"""
     def _update_acquisition_indicator(self):
         label = self._widget_registry['AcquisitionIndicator']
         if self._acquisition_mode == 'Manual':
-            label.setText('Manual')
-            color = '#000000'
+            color = '#b00000'
+            label.setText('Acquiring')
         else:
             if self._acquisition_ready:
                 color = '#b00000'
@@ -789,12 +895,17 @@ Copyright 2022, Robert S. French"""
     def device_renamed(self, config_widget):
         """Called when a device configuration window is renamed by the user."""
         measurements = config_widget.get_measurements()
+        triggers = config_widget.get_triggers()
         long_name = config_widget._inst.long_name
         inst_name = config_widget._inst.name
         for meas_key, meas in measurements.items():
             name = meas['name']
             key = (long_name, meas_key)
             self._measurement_names[key] = f'{inst_name}: {name}'
+        for trig_key, trig in triggers.items():
+            name = trig['name']
+            key = (long_name, trig_key)
+            self._trigger_names[key] = f'{inst_name}: {name}'
         self._update_widgets()
         for widget in self._measurement_display_widgets:
             widget.measurements_changed()

@@ -6,7 +6,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 
 ** General **
 
-- Create new GitHub account
 - Look into tab focus
 - Write help for each instrument
 - Add overall README file
@@ -21,7 +20,6 @@ https://github.com/pyqtgraph/pyqtgraph/issues/1381
 - Bug - Closing an instrument doesn't start a new segment so when the instrument is
   reopened it just has a big jump from the previous elapsed time (when there's only
   one instrument).
-- Save to CSV
 - Load from CSV
 - Real-time save to CSV
 - Replay recording in real time or sped up / slowed down
